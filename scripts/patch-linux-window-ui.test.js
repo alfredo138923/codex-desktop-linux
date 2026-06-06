@@ -96,6 +96,9 @@ const {
   applyLinuxI18nGatePatch,
   applyLinuxProfileSettingsMenuPatch,
   applyLinuxSafeMonospaceFontStackPatch,
+  applyLinuxThreadSidePanelNativeTooltipPatch,
+  applyLinuxTooltipWindowControlsCollisionPatch,
+  applyLinuxWindowControlsSafeAreaPatch,
 } = require("./patches/webview-assets.js");
 const { patchAssetFiles } = require("./patches/shared.js");
 
@@ -589,6 +592,9 @@ test("default core patch descriptors are grouped and unique", () => {
     "opaque-window-default-general-settings",
     "opaque-window-default-webview-index",
     "opaque-window-default-resolved-theme",
+    "linux-window-controls-safe-area",
+    "linux-tooltip-window-controls-collision",
+    "linux-thread-side-panel-native-tooltip",
     "linux-fast-mode-model-guard",
     "linux-safe-monospace-font-stack",
     "subagent-nickname-metadata-shape",
@@ -1213,7 +1219,7 @@ test("uses the frameless native Codex titlebar for primary Linux windows", () =>
   ].join("");
   const patched = applyPatchTwice(applyLinuxNativeTitlebarPatch, source);
 
-  assert.match(patched, /n===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:a\.nativeTheme\.shouldUseDarkColors\?`#111111`:o2,symbolColor:a\.nativeTheme\.shouldUseDarkColors\?v2:_2,height:Math\.round\(g2\*r\)\}\}/);
+  assert.match(patched, /n===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:a\.nativeTheme\.shouldUseDarkColors\?`#111111`:o2,symbolColor:a\.nativeTheme\.shouldUseDarkColors\?v2:_2,height:Math\.round\(30\*r\)\}\}/);
   assert.doesNotMatch(patched, /n===`win32`\?\{titleBarStyle:`hidden`,titleBarOverlay:b2\(r\)\}:\{titleBarStyle:`default`\}/);
   assert.doesNotMatch(patched, /n===`win32`\|\|n===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:b2\(r\)\}/);
 });
@@ -1234,10 +1240,88 @@ test("updates the Linux native titlebar overlay when nativeTheme changes", () =>
   );
   assert.match(
     patched,
-    /e\.setTitleBarOverlay\(process\.platform===`linux`\?\{color:a\.nativeTheme\.shouldUseDarkColors\?`#111111`:o2,symbolColor:a\.nativeTheme\.shouldUseDarkColors\?v2:_2,height:Math\.round\(g2\*this\.windowZooms\.get\(e\.id\)\)\}:b2\(this\.windowZooms\.get\(e\.id\)\)\)/,
+    /e\.setTitleBarOverlay\(process\.platform===`linux`\?\{color:a\.nativeTheme\.shouldUseDarkColors\?`#111111`:o2,symbolColor:a\.nativeTheme\.shouldUseDarkColors\?v2:_2,height:Math\.round\(30\*this\.windowZooms\.get\(e\.id\)\)\}:b2\(this\.windowZooms\.get\(e\.id\)\)\)/,
   );
   assert.doesNotMatch(patched, /webContents\.executeJavaScript\(/);
   assert.doesNotMatch(patched, /data-codex-window-type/);
+});
+
+test("adds a right-side safe area for Linux window controls in application menu chrome", () => {
+  const source = [
+    "var l=Object.freeze({default:Object.freeze({left:0,right:0}),mac:Object.freeze({legacy:Object.freeze({left:66+c,right:0}),modern:Object.freeze({left:76+c,right:0})}),applicationMenu:Object.freeze({left:0,right:0})});",
+    "var m=Object.freeze({applicationMenu:Object.freeze({left:0,right:0})});",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxWindowControlsSafeAreaPatch, source);
+
+  assert.equal(
+    (patched.match(/applicationMenu:Object\.freeze\(\{left:0,right:138\}\)/g) ?? []).length,
+    2,
+  );
+  assert.doesNotMatch(
+    patched,
+    /applicationMenu:Object\.freeze\(\{left:0,right:0\}\)/,
+  );
+});
+
+test("patches remaining Linux window controls safe areas when another copy is already patched", () => {
+  const source = [
+    "var l=Object.freeze({applicationMenu:Object.freeze({left:0,right:138})});",
+    "var m=Object.freeze({applicationMenu:Object.freeze({left:0,right:0})});",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxWindowControlsSafeAreaPatch, source);
+
+  assert.equal(
+    (patched.match(/applicationMenu:Object\.freeze\(\{left:0,right:138\}\)/g) ?? []).length,
+    2,
+  );
+  assert.doesNotMatch(
+    patched,
+    /applicationMenu:Object\.freeze\(\{left:0,right:0\}\)/,
+  );
+});
+
+test("keeps tooltips out of the Linux window controls titlebar area", () => {
+  const middleware =
+    "middleware:[a({mainAxis:C,crossAxis:t}),c({padding:8}),l({padding:8}),u({padding:8,apply({availableWidth:e,availableHeight:t,elements:n,rects:r}){n.floating.style.setProperty(`--radix-tooltip-trigger-width`,`1px`)}})]";
+  const source = `${middleware};${middleware}`;
+
+  const patched = applyPatchTwice(applyLinuxTooltipWindowControlsCollisionPatch, source);
+
+  assert.equal(
+    (patched.match(/padding:\{top:44,right:8,bottom:8,left:8\}/g) ?? []).length,
+    6,
+  );
+  assert.doesNotMatch(patched, /[,(]\{padding:8\}/);
+});
+
+test("patches remaining tooltip collision middleware when another copy is already patched", () => {
+  const patchedMiddleware =
+    "middleware:[a({mainAxis:C,crossAxis:t}),c({padding:{top:44,right:8,bottom:8,left:8}}),l({padding:{top:44,right:8,bottom:8,left:8}}),u({padding:{top:44,right:8,bottom:8,left:8},apply({availableWidth:e,availableHeight:t,elements:n,rects:r}){n.floating.style.setProperty(`--radix-tooltip-trigger-width`,`1px`)}})]";
+  const defaultMiddleware =
+    "middleware:[a({mainAxis:C,crossAxis:t}),c({padding:8}),l({padding:8}),u({padding:8,apply({availableWidth:e,availableHeight:t,elements:n,rects:r}){n.floating.style.setProperty(`--radix-tooltip-trigger-width`,`1px`)}})]";
+  const source = `${patchedMiddleware};${defaultMiddleware}`;
+
+  const patched = applyPatchTwice(applyLinuxTooltipWindowControlsCollisionPatch, source);
+
+  assert.equal(
+    (patched.match(/padding:\{top:44,right:8,bottom:8,left:8\}/g) ?? []).length,
+    6,
+  );
+  assert.doesNotMatch(patched, /[,(]\{padding:8\}/);
+});
+
+test("removes native title tooltip from the thread side panel toolbar action", () => {
+  const toolbar =
+    "function dt(e){let t=(0,X.c)(11),{children:n,disabled:r,label:i,onClick:a,color:o,pressed:s,shortcut:c}=e,l=r===void 0?!1:r,u=o===`outline`?s?`outlineActive`:`outline`:s?`secondary`:`ghost`,d;t[0]!==n||t[1]!==l||t[2]!==i||t[3]!==a||t[4]!==s||t[5]!==u?(d=(0,q.jsx)(R,{size:`toolbar`,color:u,\"aria-label\":i,\"aria-pressed\":s,disabled:l,title:i,onClick:a,uniform:!0,children:n}),t[0]=n,t[1]=l,t[2]=i,t[3]=a,t[4]=s,t[5]=u,t[6]=d):d=t[6];let f;return t[7]!==i||t[8]!==c||t[9]!==d?(f=(0,q.jsx)(L,{tooltipContent:i,shortcut:c,delayOpen:!0,children:d}),t[7]=i,t[8]=c,t[9]=d,t[10]=f):f=t[10],f}var Rt=j({toggleSidePanel:{id:`thread.sidePanel.toggle`,defaultMessage:`Toggle side panel`,description:`Toggles the thread side panel in a local or new thread`}});";
+  const source = `${toolbar}${toolbar}`;
+
+  const patched = applyPatchTwice(applyLinuxThreadSidePanelNativeTooltipPatch, source);
+
+  assert.match(patched, /"aria-label":i/);
+  assert.match(patched, /tooltipContent:i/);
+  assert.doesNotMatch(patched, /title:i/);
 });
 
 test("adds Linux menu hiding next to Windows removeMenu calls", () => {
