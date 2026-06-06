@@ -27,6 +27,7 @@ const {
   applyLinuxChromePluginAutoInstallPatch,
   applyLinuxAppUpdaterBridgePatch,
   applyLinuxAppUpdaterMenuPatch,
+  applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxBuildInfoTrayPatch,
   applyLinuxExplicitIpcQuitPatch,
   applyLinuxExplicitQuitPromptBypassPatch,
@@ -559,6 +560,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-set-icon",
     "linux-opaque-background",
     "linux-avatar-overlay-mouse-passthrough",
+    "linux-avatar-overlay-mascot-drag-only",
     "linux-browser-use-availability",
     "linux-browser-use-non-local-navigation",
     "linux-file-manager",
@@ -957,16 +959,26 @@ function avatarOverlayBundleFixture() {
     "var fV=class{window=null;openingWindowPromise=null;anchor=pV({x:0,y:0,...zB},oV);dragState=null;layout=null;mascotSize=oV;momentumTimer=null;mousePassthroughEnabled=!1;placement=`top-end`;pointerInteractive=!1;rendererReady=!1;traySize=null;",
     "constructor(e,t){this.windowManager=e,this.globalState=t}",
     "isOpen(){let e=this.window;return e!=null&&!e.isDestroyed()&&e.isVisible()}",
+    "setKeyboardInteraction(e,t){let r=this.window;if(!(r==null||r.isDestroyed()||r.webContents.id!==e)){if(this.applyPointerInteractivityPolicy(),!t){r.setFocusable(!1);return}r.setFocusable(!0),r.show(),process.platform===`darwin`&&n.app.focus({steal:!0}),r.focus(),r.webContents.focus(),this.windowManager.sendMessageToWebContents(r.webContents,{type:`avatar-overlay-keyboard-interaction-ready`})}}",
     "startDrag(e,{pointerWindowX:t,pointerWindowY:r}){let i=this.window;if(i==null||i.isDestroyed()||i.webContents.id!==e)return;this.cancelMomentum();let a=this.getLayout(i);this.dragState={pointerAnchorX:t-a.mascot.left,pointerAnchorY:r-a.mascot.top,hasMoved:!1,displayBounds:n.screen.getDisplayNearestPoint(n.screen.getCursorScreenPoint()).bounds}}",
     "moveDrag(e){let t=this.window;t==null||t.isDestroyed()||t.webContents.id!==e||this.dragState==null||(this.cancelMomentum(),this.dragState.hasMoved=!0,this.moveDragToCurrentCursor(t))}",
     "endDrag(e){let t=this.window;t==null||t.isDestroyed()||t.webContents.id!==e||(this.dragState?.hasMoved&&this.moveDragToCurrentCursor(t),this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0}))}",
+    "moveDragToCurrentCursor(e){let t=this.dragState;if(t==null)return;let r=n.screen.getCursorScreenPoint(),i=zQ(r,t.displayBounds),a=n.screen.getDisplayMatching(i);t.displayBounds=a.bounds,this.anchor={...this.anchor,x:r.x-t.pointerAnchorX,y:r.y-t.pointerAnchorY},this.applyLayout(e,a)}",
     "setElementSize(e,{mascot:t,tray:n}){let r=this.window;r==null||r.isDestroyed()||r.webContents.id!==e||(this.cancelMomentum(),this.anchor={...this.anchor,width:t.width,height:t.height},this.mascotSize=t,this.traySize=n,this.applyLayout(r))}",
-    "async createWindow(e){let t=await this.windowManager.createWindow({title:n.app.getName(),width:zB.width,height:zB.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:rV,hostId:this.windowManager.getHostIdForWebContents(e)??`local`});return this.window=t,this.rendererReady=this.windowManager.isWebContentsReady(t.webContents.id),this.dragState=null,this.layout=null,this.mascotSize=oV,this.mousePassthroughEnabled=!1,this.placement=`top-end`,this.pointerInteractive=!1,this.traySize=null,t.once(`ready-to-show`,()=>{t.isDestroyed()||!this.rendererReady||(this.showWindow(t),this.applyPointerInteractivityPolicy())}),t.on(`closed`,()=>{this.window===t&&(this.cancelMomentum(),this.window=null,this.dragState=null,this.layout=null,this.rendererReady=!1,this.pointerInteractive=!1,this.mousePassthroughEnabled=!1,this.globalState.set(Te,!1),this.broadcastOpenState())}),t}",
+    "async createWindow(e){let t=await this.windowManager.createWindow({title:n.app.getName(),width:zB.width,height:zB.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:rV,hostId:this.windowManager.getHostIdForWebContents(e)??`local`});return this.window=t,this.rendererReady=this.windowManager.isWebContentsReady(t.webContents.id),this.dragState=null,this.layout=null,this.mascotSize=oV,this.mousePassthroughEnabled=!1,this.placement=`top-end`,this.pointerInteractive=!1,this.traySize=null,t.setAlwaysOnTop(!0,`floating`),t.once(`ready-to-show`,()=>{t.isDestroyed()||!this.rendererReady||(this.showWindow(t),this.applyPointerInteractivityPolicy())}),t.on(`closed`,()=>{this.window===t&&(this.cancelMomentum(),this.window=null,this.dragState=null,this.layout=null,this.rendererReady=!1,this.pointerInteractive=!1,this.mousePassthroughEnabled=!1,this.globalState.set(Te,!1),this.broadcastOpenState())}),t}",
     "applyLayout(e,t=n.screen.getDisplayNearestPoint(hV(this.anchor)).bounds){if(e.isDestroyed())return;let r=UB({anchor:this.anchor,displayBounds:t,mascotSize:this.mascotSize,previousPlacement:this.placement,traySize:this.traySize??sV});this.anchor=r.anchor,this.layout=r,this.placement=r.placement,this.setWindowBounds(e,r.windowBounds),this.sendLayoutToRenderer(e)}getLayout(e){if(this.layout??this.applyLayout(e),this.layout==null)throw Error(`Expected avatar overlay layout`);return this.layout}",
     "showWindow(e){if(e.isDestroyed())return;let t=this.isOpen();e.moveTop(),e.showInactive(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){this.windowManager.sendMessageToAllRegisteredWindows({type:`avatar-overlay-open-state-changed`,isOpen:this.isOpen()})}",
     "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}",
     "refreshCursorAtCurrentMousePosition(e){if(e.isDestroyed())return;let t=n.screen.getCursorScreenPoint(),r=e.getContentBounds(),i=t.x-r.x,a=t.y-r.y;i<0||a<0||i>r.width||a>r.height||e.webContents.sendInputEvent({type:`mouseMove`,x:i,y:a,movementX:0,movementY:0})}",
     "};",
+  ].join("");
+}
+
+function avatarOverlayPageBundleFixture() {
+  return [
+    "let Q=at,ot;",
+    "ot=e=>{e.button!==0||!(e.target instanceof Element)||e.target.closest(`.no-drag`)!=null||(e.preventDefault(),e.currentTarget.setPointerCapture?.(e.pointerId),ke.current={startedOnMascot:e.target.closest(`[data-avatar-mascot=\"true\"]`)!=null,hasMoved:!1,pointerId:e.pointerId,samples:[U(e)],screenX:e.screenX,screenY:e.screenY},y.dispatchMessage(`avatar-overlay-drag-start`,{pointerWindowX:e.clientX,pointerWindowY:e.clientY}),A(!0),E(null))};",
+    "let lt=e=>{let t=ke.current;if(t==null||t.pointerId!==e.pointerId)return;let n=U(e);t.samples=Ce([...t.samples,n]);let r=n.screenX-t.screenX,i=n.screenY-t.screenY;Math.abs(r)<sn&&Math.abs(i)<sn||(t.hasMoved=!0,t.screenX=n.screenX,t.screenY=n.screenY,E(e=>Mn({currentDragState:e,deltaX:r})),y.dispatchMessage(`avatar-overlay-drag-move`,{}))};",
   ].join("");
 }
 
@@ -1445,8 +1457,11 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /if\(t==null\)return null/);
   assert.match(patched, /if\(t==null\)return!1;let n=JSON\.stringify\(t\)/);
   assert.match(patched, /e\.setShape\(t\),this\.codexLinuxAvatarInputShapeKey=n;return!0/);
-  assert.match(patched, /return\[i\(t\.mascot\),i\(t\.tray\)\]\.filter\(Boolean\)/);
+  assert.match(patched, /,a=\[i\(t\.mascot\)\];this\.traySize!=null&&a\.push\(i\(t\.tray\)\);return a\.filter\(Boolean\)/);
+  assert.doesNotMatch(patched, /if\(this\.dragState!=null\)\{let t=e\.getContentBounds\(\);return\[\{x:0,y:0,width:t\.width,height:t\.height\}\]\}/);
   assert.match(patched, /process\.platform!==`linux`/);
+  assert.match(patched, /codexLinuxAvatarUsesNativeWayland\(\)\{let e=process\.argv\.join\(` `\);if\(/);
+  assert.match(patched, /if\(process\.platform===`linux`&&this\.codexLinuxAvatarUsesNativeWayland\(\)\)\{this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.pointerInteractive=!0,this\.mousePassthroughEnabled&&\(this\.mousePassthroughEnabled=!1\),e\.setIgnoreMouseEvents\(!1\);return\}/);
   assert.match(patched, /setInterval\(\(\)=>\{let e=this\.window/);
   assert.match(patched, /\},32\)/);
   assert.doesNotMatch(patched, /typeof e\.setShape==`function`\)return;this\.codexLinuxAvatarPassthroughRecoveryTimer=setInterval/);
@@ -1454,15 +1469,41 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /this\.codexLinuxIsCursorInAvatarInteractiveRegion\(e\)/);
   assert.match(patched, /catch\{t=!0\}/);
   assert.match(patched, /this\.pointerInteractive=t/);
-  assert.match(patched, /displayBounds:n\.screen\.getDisplayNearestPoint\(n\.screen\.getCursorScreenPoint\(\)\)\.bounds\},process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)\}moveDrag\(e\)/);
+  assert.match(patched, /return s\(t\.mascot\)\|\|this\.traySize!=null&&s\(t\.tray\)/);
+  assert.match(patched, /displayBounds:n\.screen\.getDisplayNearestPoint\(n\.screen\.getCursorScreenPoint\(\)\)\.bounds\},process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)\}moveDrag\(e,codexLinuxDragPoint\)/);
+  assert.match(patched, /moveDrag\(e,codexLinuxDragPoint\)/);
+  assert.match(patched, /this\.moveDragToCurrentCursor\(t,codexLinuxDragPoint\)/);
+  assert.match(patched, /moveDragToCurrentCursor\(e,codexLinuxDragPoint\)\{let t=this\.dragState;if\(t==null\)return;let r=codexLinuxDragPoint!=null&&Number\.isFinite\(codexLinuxDragPoint\.screenX\)&&Number\.isFinite\(codexLinuxDragPoint\.screenY\)\?\{x:codexLinuxDragPoint\.screenX,y:codexLinuxDragPoint\.screenY\}:n\.screen\.getCursorScreenPoint\(\)/);
+  assert.match(patched, /this\.dragState\?\.hasMoved&&process\.platform!==`linux`&&this\.moveDragToCurrentCursor\(t\)/);
   assert.match(patched, /this\.dragState=null,this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
+  assert.match(patched, /setElementSize\(e,\{isTrayVisible:codexLinuxIsTrayVisible,mascot:t,tray:n\}\)/);
+  assert.match(patched, /this\.traySize=process\.platform===`linux`&&codexLinuxIsTrayVisible===!1\?null:n/);
   assert.match(patched, /this\.applyLayout\(r\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.match(patched, /this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.rendererReady=/);
   assert.match(patched, /traySize:process\.platform===`linux`&&typeof this\.codexLinuxIsI3Session==`function`&&this\.codexLinuxIsI3Session\(\)\?this\.traySize:this\.traySize\?\?sV/);
   assert.match(patched, /this\.setWindowBounds\(e,r\.windowBounds\),this\.sendLayoutToRenderer\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
-  assert.match(patched, /e\.moveTop\(\),e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
+  assert.match(patched, /e\.moveTop\(\),process\.platform===`linux`\?e\.show\(\):e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.doesNotMatch(patched, /codexLinuxRecoverAvatarPointerInteractivity/);
   assert.match(patched, /this\.window===t&&\(this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
+  assert.match(patched, /focusable:process\.platform===`linux`\?!0:!1/);
+  assert.match(patched, /process\.platform===`linux`&&\(t\.setSkipTaskbar\(!0\),t\.setAlwaysOnTop\(!0,`screen-saver`\)\)/);
+  assert.match(patched, /process\.platform!==`linux`&&r\.setFocusable\(!1\)/);
+  assert.match(patched, /\(process\.platform===`darwin`\|\|process\.platform===`linux`\)&&n\.app\.focus\(\{steal:!0\}\)/);
+  assert.match(patched, /process\.platform===`linux`&&e\.setAlwaysOnTop\(!0,`screen-saver`\),e\.moveTop\(\),process\.platform===`linux`\?e\.show\(\):e\.showInactive\(\)/);
+});
+
+test("restricts Linux avatar overlay drag start to the mascot element", () => {
+  const source = avatarOverlayPageBundleFixture();
+
+  const patched = applyPatchTwice(applyLinuxAvatarOverlayMascotDragOnlyPatch, source);
+
+  assert.match(patched, /if\(e\.button!==0\|\|!\(e\.target instanceof Element\)\|\|e\.target\.closest\(`\.no-drag`\)!=null\)return/);
+  assert.match(patched, /if\(e\.target\.closest\(`\[data-avatar-mascot="true"\]`\)==null\)return/);
+  assert.match(patched, /ke\.current=\{startedOnMascot:!0,hasMoved:!1/);
+  assert.match(patched, /y\.dispatchMessage\(`avatar-overlay-drag-move`,\{screenX:n\.screenX,screenY:n\.screenY\}\)/);
+  assert.match(patched, /codex-linux-avatar-native-drag-style/);
+  assert.match(patched, /\[data-avatar-mascot="true"\]\{-webkit-app-region:drag;app-region:drag\}/);
+  assert.doesNotMatch(patched, /startedOnMascot:e\.target\.closest/);
 });
 
 test("keeps avatar overlay layout sync working after layout alias drift", () => {

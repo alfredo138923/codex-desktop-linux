@@ -104,6 +104,7 @@ const {
 const {
   applyBrowserAnnotationScreenshotPatch,
   applyLinuxAppSunsetPatch,
+  applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxBrowserUseAvailabilityPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxConfigWriteVersionConflictPatch,
@@ -174,6 +175,7 @@ module.exports = {
   applyLinuxAppUpdaterBridgePatch,
   applyLinuxAppUpdaterMenuPatch,
   applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxBrowserUseIabVisibleOnCreatePatch,
   applyLinuxBrowserUseAvailabilityPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,

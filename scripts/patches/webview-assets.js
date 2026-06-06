@@ -212,6 +212,60 @@ function applyLinuxAppSunsetPatch(currentSource) {
   return currentSource;
 }
 
+function applyLinuxAvatarOverlayMascotDragOnlyPatch(currentSource) {
+  let patchedSource = currentSource;
+  const nativeDragStyleId = "codex-linux-avatar-native-drag-style";
+  if (
+    patchedSource.includes("data-avatar-mascot") &&
+    !patchedSource.includes(nativeDragStyleId)
+  ) {
+    patchedSource +=
+      `;(()=>{if(typeof document<\`u\`&&!document.getElementById(\`${nativeDragStyleId}\`)){let e=document.createElement(\`style\`);e.id=\`${nativeDragStyleId}\`,e.textContent=\`[data-avatar-mascot="true"]{-webkit-app-region:drag;app-region:drag}[data-avatar-mascot="true"] .no-drag{-webkit-app-region:no-drag;app-region:no-drag}\`,document.head.appendChild(e)}})();`;
+  }
+  if (
+    !patchedSource.includes("avatar-overlay-drag-move`,{screenX:") &&
+    patchedSource.includes("avatar-overlay-drag-move")
+  ) {
+    const dragMoveRegex =
+      /let ([A-Za-z_$][\w$]*)=U\(e\);([\s\S]{0,700}?)([A-Za-z_$][\w$]*)\.dispatchMessage\(`avatar-overlay-drag-move`,\{\}\)/;
+    if (dragMoveRegex.test(patchedSource)) {
+      patchedSource = patchedSource.replace(
+        dragMoveRegex,
+        "let $1=U(e);$2$3.dispatchMessage(`avatar-overlay-drag-move`,{screenX:$1.screenX,screenY:$1.screenY})",
+      );
+    } else {
+      console.warn(
+        "WARN: Could not find avatar overlay drag-move handler — skipping screen-coordinate drag patch",
+      );
+    }
+  }
+
+  if (
+    patchedSource.includes("avatar-overlay-drag-start") &&
+    patchedSource.includes("if(e.target.closest(`[data-avatar-mascot=\"true\"]`)==null)return")
+  ) {
+    return patchedSource;
+  }
+
+  const dragStartRegex =
+    /([A-Za-z_$][\w$]*)=e=>\{e\.button!==0\|\|!\(e\.target instanceof Element\)\|\|e\.target\.closest\(`\.no-drag`\)!=null\|\|\(e\.preventDefault\(\),e\.currentTarget\.setPointerCapture\?\.\(e\.pointerId\),([A-Za-z_$][\w$]*)\.current=\{startedOnMascot:e\.target\.closest\(`\[data-avatar-mascot="true"\]`\)!=null,([\s\S]*?\.dispatchMessage\(`avatar-overlay-drag-start`,\{pointerWindowX:e\.clientX,pointerWindowY:e\.clientY\}\),[A-Za-z_$][\w$]*\(!0\),[A-Za-z_$][\w$]*\(null\))\)\}/;
+
+  if (dragStartRegex.test(patchedSource)) {
+    return patchedSource.replace(
+      dragStartRegex,
+      "$1=e=>{if(e.button!==0||!(e.target instanceof Element)||e.target.closest(`.no-drag`)!=null)return;if(e.target.closest(`[data-avatar-mascot=\"true\"]`)==null)return;e.preventDefault(),e.currentTarget.setPointerCapture?.(e.pointerId),$2.current={startedOnMascot:!0,$3}",
+    );
+  }
+
+  if (patchedSource.includes("avatar-overlay-drag-start") && patchedSource.includes("data-avatar-mascot")) {
+    console.warn(
+      "WARN: Could not find avatar overlay drag-start handler — skipping mascot-only drag patch",
+    );
+  }
+
+  return patchedSource;
+}
+
 function applyLinuxBrowserUseAvailabilityPatch(currentSource) {
   const browserUseFeatureNeedle = "featureName:`browser_use`";
   const statsigNeedle = "410262010";
@@ -1126,6 +1180,7 @@ module.exports = {
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxConfigWriteVersionConflictPatch,
   applyLinuxI18nGatePatch,
+  applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxProfileSettingsMenuPatch,
   applyPersistentRateLimitFooterPatch,
   applyLinuxAppSunsetPatch,

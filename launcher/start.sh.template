@@ -226,7 +226,8 @@ Options:
   --x11                       Force X11/XWayland
   --wayland                   Force native Wayland
 
-Default launch keeps Electron GPU enabled and lets Electron choose the platform.
+Default launch keeps Electron GPU enabled and uses X11/XWayland when available.
+Use --wayland or CODEX_LINUX_RENDERING_MODE=wayland-gpu to force native Wayland.
 Extra flags are passed directly to Electron.
 
 Environment:
@@ -1902,6 +1903,10 @@ is_wslg_session() {
     [ -n "${DISPLAY:-}" ] && [ -e /mnt/wslg ]
 }
 
+can_use_x11_backend() {
+    [ -n "${DISPLAY:-}" ]
+}
+
 normalize_linux_rendering_mode() {
     case "${CODEX_LINUX_RENDERING_MODE:-auto}" in
         auto|default|wslg|wayland-gpu)
@@ -1968,7 +1973,6 @@ apply_electron_rendering_profile() {
             fi
             ;;
         default)
-            return 0
             ;;
         wayland-gpu)
             if [ "$ELECTRON_PLATFORM_EXPLICIT" -eq 0 ] && [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 0 ]; then
@@ -1979,7 +1983,17 @@ apply_electron_rendering_profile() {
             ;;
     esac
 
-    [ "$ELECTRON_RENDERING_MODE" = "wslg" ] || return 0
+    if [ "$ELECTRON_RENDERING_MODE" != "wslg" ]; then
+        if [ "$ELECTRON_RENDERING_MODE" = "default" ] \
+            && [ "$ELECTRON_PLATFORM_EXPLICIT" -eq 0 ] \
+            && [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 0 ] \
+            && can_use_x11_backend; then
+            ELECTRON_OZONE_PLATFORM="x11"
+            ELECTRON_OZONE_HINT=""
+            echo "Detected DISPLAY=$DISPLAY; using --ozone-platform=x11 for reliable Linux floating-window movement"
+        fi
+        return 0
+    fi
 
     if [ "$ELECTRON_PLATFORM_EXPLICIT" -eq 0 ] && [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 0 ]; then
         ELECTRON_OZONE_PLATFORM="x11"
