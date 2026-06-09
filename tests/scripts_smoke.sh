@@ -194,6 +194,85 @@ JSON
     assert_mode "$private_file" "600"
 }
 
+test_stage_common_package_files_resolves_tray_icon_deterministically() {
+    info "Checking stage_common_package_files tray icon resolution"
+    local workspace="$TMP_DIR/package-common-tray"
+    local app_dir="$workspace/app"
+    local root="$workspace/root"
+    local output_log="$workspace/output.log"
+    local icon_source="$workspace/icon-source.png"
+    local tray_output="$root/opt/codex-desktop/.codex-linux/codex-desktop-tray.png"
+    local package_icon="$root/opt/codex-desktop/.codex-linux/codex-desktop.png"
+
+    mkdir -p "$workspace" "$root"
+    make_fake_app "$app_dir"
+    mkdir -p "$app_dir/content/webview/assets"
+    printf '%s\n' 'package-icon' > "$icon_source"
+    printf '%s\n' 'upstream-tray' > "$app_dir/content/webview/assets/app-main.png"
+
+    (
+        export APP_DIR="$app_dir"
+        export PACKAGE_NAME="codex-desktop"
+        export PACKAGE_WITH_UPDATER=0
+        export ICON_SOURCE="$icon_source"
+        export DESKTOP_TEMPLATE="$REPO_DIR/packaging/linux/codex-desktop.desktop"
+        export PACKAGED_RUNTIME_SOURCE="$REPO_DIR/packaging/linux/codex-packaged-runtime.sh"
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/package-common.sh"
+        stage_common_package_files "$root"
+    ) >"$output_log" 2>&1
+
+    assert_file_exists "$package_icon"
+    assert_file_exists "$tray_output"
+    cmp -s "$icon_source" "$package_icon" || fail "Expected package icon copy to come from ICON_SOURCE"
+    cmp -s "$app_dir/content/webview/assets/app-main.png" "$tray_output" \
+        || fail "Expected tray icon copy to come from the unique upstream asset"
+    assert_not_contains "$output_log" "falling back to package icon"
+}
+
+test_stage_common_package_files_tray_icon_fallbacks_when_ambiguous_or_missing() {
+    info "Checking stage_common_package_files tray icon fallback behavior"
+    local workspace="$TMP_DIR/package-common-tray-fallback"
+    local icon_source="$workspace/icon-source.png"
+    local output_log="$workspace/output.log"
+
+    mkdir -p "$workspace"
+    printf '%s\n' 'package-icon' > "$icon_source"
+
+    for scenario in ambiguous missing; do
+        local app_dir="$workspace/$scenario-app"
+        local root="$workspace/$scenario-root"
+        local tray_output="$root/opt/codex-desktop/.codex-linux/codex-desktop-tray.png"
+
+        mkdir -p "$root"
+        make_fake_app "$app_dir"
+        mkdir -p "$app_dir/content/webview/assets"
+        if [ "$scenario" = "ambiguous" ]; then
+            printf '%s\n' 'upstream-a' > "$app_dir/content/webview/assets/app-alpha.png"
+            printf '%s\n' 'upstream-b' > "$app_dir/content/webview/assets/app-beta.png"
+        fi
+
+        (
+            export APP_DIR="$app_dir"
+            export PACKAGE_NAME="codex-desktop"
+            export PACKAGE_WITH_UPDATER=0
+            export ICON_SOURCE="$icon_source"
+            export DESKTOP_TEMPLATE="$REPO_DIR/packaging/linux/codex-desktop.desktop"
+            export PACKAGED_RUNTIME_SOURCE="$REPO_DIR/packaging/linux/codex-packaged-runtime.sh"
+            # shellcheck disable=SC1091
+            source "$REPO_DIR/scripts/lib/package-common.sh"
+            stage_common_package_files "$root"
+        ) >>"$output_log" 2>&1
+
+        assert_file_exists "$tray_output"
+        cmp -s "$icon_source" "$tray_output" \
+            || fail "Expected tray icon fallback to come from ICON_SOURCE for $scenario"
+    done
+
+    assert_contains "$output_log" "Multiple tray icon candidates found"
+    assert_contains "$output_log" "Could not resolve a unique tray icon"
+}
+
 test_deb_builder_smoke() {
     info "Running Debian packaging smoke test"
     local workspace="$TMP_DIR/deb"
@@ -2208,6 +2287,10 @@ SCRIPT
     assert_contains "$launcher_stderr" "CODEX_WEBVIEW_PORT must be between 1 and 65535"
     assert_not_contains "$launcher_stderr" "integer expected"
 
+    XDG_CONFIG_HOME="$workspace/help-config" bash "$start_script" --help >"$launcher_stdout" 2>"$launcher_stderr"
+    assert_contains "$launcher_stdout" "electron-flags.conf"
+    assert_file_not_exists "$workspace/help-config/codex-desktop/electron-flags.conf"
+
     cat > "$launcher_probe_script" <<'SCRIPT'
 #!/bin/bash
 set -euo pipefail
@@ -2875,6 +2958,9 @@ set -Eeuo pipefail
 
 CODEX_LINUX_APP_ID="${CODEX_LINUX_APP_ID:-codex-desktop}"
 APP_STATE_DIR="${APP_STATE_DIR:-/tmp/codex-launcher-probe-state}"
+APP_CONFIG_DIR="${APP_CONFIG_DIR:-/tmp/codex-launcher-probe-config.$$}"
+USER_ELECTRON_FLAGS_FILE="${USER_ELECTRON_FLAGS_FILE:-$APP_CONFIG_DIR/electron-flags.conf}"
+FEATURE_ELECTRON_ARGS_DIR="${FEATURE_ELECTRON_ARGS_DIR:-}"
 
 print_state() {
     printf 'mode=%s wslg=%s ozone_platform=%s ozone_hint=%s gpu=%s gpu_arg=%s comp=%s gl_added=%s renderer_accessibility=%s launch=' \
@@ -2900,9 +2986,14 @@ print_state() {
 case "${1:-}" in
     probe)
         shift
-        set_electron_defaults "$@"
+        load_feature_electron_args
+        load_user_electron_flags
+        set_electron_defaults "${FEATURE_ELECTRON_ARGS[@]}" "${USER_ELECTRON_FLAGS[@]}" "$@"
         build_electron_launch_args
         print_state
+        ;;
+    ensure-template)
+        ensure_user_electron_flags_file
         ;;
     *)
         echo "Usage: $0 probe [launcher args...]" >&2
@@ -2929,7 +3020,44 @@ PY
     [[ "$output" == *"electron=<--ozone-platform=x11>"* ]] || fail "pass-through ozone platform must reach Electron: $output"
     [[ "$output" != *"<--ozone-platform-hint=auto>"* ]] || fail "launcher must not add ozone hint when pass-through supplies an ozone platform: $output"
 
-    output="$(env -i PATH="$PATH" HOME="$HOME" DISPLAY=:1 CODEX_LINUX_RENDERING_MODE=wayland-gpu "$launcher_probe" probe)"
+    local user_flags_dir="$TMP_DIR/user-electron-flags"
+    local user_flags_file="$user_flags_dir/electron-flags.conf"
+    mkdir -p "$user_flags_dir"
+    printf '%s\n' \
+        '# --disable-gpu' \
+        '' \
+        '--ozone-platform=x11' \
+        '--enable-wayland-ime' \
+        '--use-gl=angle' > "$user_flags_file"
+
+    output="$(env -i PATH="$PATH" HOME="$HOME" APP_CONFIG_DIR="$user_flags_dir" USER_ELECTRON_FLAGS_FILE="$user_flags_file" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe)"
+    [[ "$output" == *"<--ozone-platform=x11>"* ]] || fail "persistent flags file must set the Electron ozone platform: $output"
+    [[ "$output" != *"<--ozone-platform-hint=auto>"* ]] || fail "persistent ozone platform must suppress the default ozone hint: $output"
+    [[ "$output" == *"electron=<--enable-wayland-ime><--use-gl=angle>"* ]] || fail "persistent flags file must pass non-launcher Electron args in order: $output"
+    [[ "$output" != *"<--disable-gpu>"* ]] || fail "commented persistent flags must be ignored: $output"
+
+    output="$(env -i PATH="$PATH" HOME="$HOME" APP_CONFIG_DIR="$user_flags_dir" USER_ELECTRON_FLAGS_FILE="$user_flags_file" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe -- --use-gl=desktop)"
+    [[ "$output" == *"electron=<--enable-wayland-ime><--use-gl=angle><--use-gl=desktop>"* ]] || fail "explicit CLI Electron args must follow persistent file args: $output"
+
+    local feature_args_dir="$TMP_DIR/feature-electron-args"
+    mkdir -p "$feature_args_dir"
+    printf '%s\n' '--ozone-platform=wayland' '--use-angle=gl' > "$feature_args_dir/feature"
+    output="$(env -i PATH="$PATH" HOME="$HOME" APP_CONFIG_DIR="$user_flags_dir" USER_ELECTRON_FLAGS_FILE="$user_flags_file" FEATURE_ELECTRON_ARGS_DIR="$feature_args_dir" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe)"
+    [[ "$output" == *"<--ozone-platform=x11>"* ]] || fail "persistent flags file must override feature Electron platform args: $output"
+    [[ "$output" != *"<--ozone-platform=wayland>"* ]] || fail "feature Electron platform args must not survive after user override: $output"
+    [[ "$output" == *"electron=<--use-angle=gl><--enable-wayland-ime><--use-gl=angle>"* ]] || fail "feature, user, and CLI-independent Electron args must keep precedence order: $output"
+
+    local template_dir="$TMP_DIR/user-electron-template"
+    local template_file="$template_dir/electron-flags.conf"
+    env -i PATH="$PATH" HOME="$HOME" APP_CONFIG_DIR="$template_dir" USER_ELECTRON_FLAGS_FILE="$template_file" "$launcher_probe" ensure-template >/dev/null
+    assert_file_exists "$template_file"
+    assert_contains "$template_file" "--x11"
+    assert_contains "$template_file" "--enable-wayland-ime"
+    printf '%s\n' '--wayland' > "$template_file"
+    env -i PATH="$PATH" HOME="$HOME" APP_CONFIG_DIR="$template_dir" USER_ELECTRON_FLAGS_FILE="$template_file" "$launcher_probe" ensure-template >/dev/null
+    [ "$(cat "$template_file")" = "--wayland" ] || fail "persistent flags template must not overwrite an existing file"
+
+    output="$(env -i PATH="$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=wayland-gpu "$launcher_probe" probe)"
     [[ "$output" == *"mode=wayland-gpu"* && "$output" == *"ozone_platform=wayland"* && "$output" == *"gpu=1"* ]] || fail "wayland-gpu profile must force native Wayland with GPU enabled: $output"
     [[ "$output" == *"comp=0"* && "$output" != *"<--disable-gpu-compositing>"* ]] || fail "wayland-gpu profile must keep GPU compositing enabled: $output"
     [[ "$output" == *"<--ozone-platform=wayland>"* && "$output" == *"<--enable-features=WaylandWindowDecorations>"* ]] || fail "wayland-gpu profile must add Wayland launch args: $output"
@@ -3988,7 +4116,10 @@ NODE
 
     node "$REPO_DIR/scripts/patch-linux-window-ui.js" "$extracted" >"$output_log" 2>&1
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'process.platform!==`linux`' '1'
-    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath' '3'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`)' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath+`/../.codex-linux/codex-desktop.png`)' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath+`/../content/webview/assets/app-test.png`)' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'process.platform===`linux`)&&!this.isAppQuitting' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'setLinuxTrayContextMenu(){' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'process.platform===`linux`&&this.setLinuxTrayContextMenu(),this.tray.on(`click`' '1'

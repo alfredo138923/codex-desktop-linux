@@ -28,6 +28,7 @@ const {
   applyLinuxAppUpdaterBridgePatch,
   applyLinuxAppUpdaterMenuPatch,
   applyLinuxAvatarOverlayMascotDragOnlyPatch,
+  applyLinuxAboutDialogPatch,
   applyLinuxBuildInfoTrayPatch,
   applyLinuxExplicitIpcQuitPatch,
   applyLinuxExplicitQuitPromptBypassPatch,
@@ -43,6 +44,7 @@ const {
   applyLinuxMultiInstanceBootstrapPatch,
   applyLinuxAppSunsetPatch,
   applyLinuxBrowserUseAvailabilityPatch,
+  applyLinuxBrowserUseExternalAvailabilityPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxOpaqueBackgroundPatch,
   applyLinuxFastModeModelGuardPatch,
@@ -67,6 +69,7 @@ const {
   corePatchDescriptors,
   detectLinuxTargetContext,
   discoverCorePatchDescriptors,
+  enabledLinuxFeatureIds,
   linuxTargetSummary,
   normalizePatchDescriptors,
   parseOsRelease,
@@ -88,6 +91,9 @@ const {
   sourceInfo,
 } = require("./lib/build-info.js");
 const {
+  summarizePatchReport,
+} = require("./lib/patch-report.js");
+const {
   applyBrowserAnnotationScreenshotPatch,
   applyLocalEnvironmentActionModalDraftPatch,
   applyPersistentRateLimitFooterPatch,
@@ -101,6 +107,7 @@ const {
   applyLinuxWindowControlsSafeAreaPatch,
 } = require("./patches/webview-assets.js");
 const { patchAssetFiles } = require("./patches/shared.js");
+const { featurePatchDescriptors } = require("./patches/registry.js");
 
 const mainBundlePrefix =
   "let n=require(`electron`),i=require(`node:path`),o=require(`node:fs`);";
@@ -557,6 +564,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-explicit-tray-quit",
     "linux-explicit-ipc-quit",
     "linux-window-options",
+    "linux-about-dialog",
     "linux-native-titlebar",
     "linux-menu",
     "linux-multi-instance-bootstrap-lock",
@@ -566,6 +574,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-avatar-overlay-mascot-drag-only",
     "linux-browser-use-availability",
     "linux-browser-use-non-local-navigation",
+    "linux-browser-use-external-availability",
     "linux-file-manager",
     "linux-tray",
     "linux-build-info-tray",
@@ -1676,11 +1685,21 @@ test("patches remaining Linux window icon snippets when another window is alread
 
 test("adds Linux tray support including the platform guard", () => {
   const iconPathExpression = "process.resourcesPath+`/../content/webview/assets/app-test.png`";
+  const packagedTrayIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`";
+  const packagedAppIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop.png`";
   const patched = applyPatchTwice(applyLinuxTrayPatch, trayBundleFixture(), iconPathExpression);
 
   assert.match(
     patched,
     /process\.platform!==`win32`&&process\.platform!==`darwin`&&process\.platform!==`linux`\?null:/,
+  );
+  assert.match(
+    patched,
+    new RegExp(`nativeImage\\.createFromPath\\(${escapeRegExp(packagedTrayIconPathExpression)}\\)`),
+  );
+  assert.match(
+    patched,
+    new RegExp(`nativeImage\\.createFromPath\\(${escapeRegExp(packagedAppIconPathExpression)}\\)`),
   );
   assert.match(
     patched,
@@ -1711,6 +1730,22 @@ test("adds Linux tray support including the platform guard", () => {
   assert.doesNotMatch(patched, /process\.platform===`linux`&&codexLinuxIsTrayEnabled\(\)/);
 });
 
+test("adds Linux tray support even when About dialog already uses the bundled icon path", () => {
+  const iconPathExpression = "process.resourcesPath+`/../content/webview/assets/app-test.png`";
+  const packagedTrayIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`";
+  const source = [
+    trayBundleFixture(),
+    "async function bZ(){let t=process.execPath;return process.platform===`linux`?Promise.resolve((()=>{let __codexLinuxAboutIcon=n.nativeImage.createFromPath(process.resourcesPath+`/../content/webview/assets/app-test.png`);return __codexLinuxAboutIcon.isEmpty()?null:__codexLinuxAboutIcon})()):n.app.getFileIcon(t,{size:process.platform===`win32`?`large`:`normal`}).catch(()=>null)}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxTrayPatch, source, iconPathExpression);
+
+  assert.match(
+    patched,
+    new RegExp(`nativeImage\\.createFromPath\\(${escapeRegExp(packagedTrayIconPathExpression)}\\)`),
+  );
+});
+
 test("adds Linux build information to the tray menu", () => {
   const patched = applyPatchTwice(applyLinuxBuildInfoTrayPatch, `${mainBundlePrefix}${trayBundleFixture()}`);
 
@@ -1719,10 +1754,29 @@ test("adds Linux build information to the tray menu", () => {
   assert.match(patched, /label:`Build Information`,click:\(\)=>\{codexLinuxShowBuildInfo\(\)\}/);
   assert.match(patched, /Enabled features:/);
   assert.match(patched, /Upstream DMG SHA256:/);
-  assert.match(patched, /Linux source revision:/);
+  assert.match(patched, /Linux source commit:/);
   assert.match(patched, /Source commit URL:/);
-  assert.match(patched, /Open Commit/);
+  assert.match(patched, /Open Source Commit/);
+  assert.match(patched, /Open Metadata File/);
   assert.match(patched, /shell\?\.openExternal/);
+  assert.match(patched, /shell\?\.openPath/);
+});
+
+test("adds Linux build information request handlers for renderer settings", () => {
+  const source =
+    "let n=require(`electron`),o=require(`node:fs`),i=require(`node:path`),e={bn:{help:`help`}};const h={\"get-global-state\":async({key:a})=>({value:this.globalState.get(a)}),\"set-global-state\":async({key:a,value:b,origin:c})=>(this.setGlobalStateValue(a,b,c),{success:!0})};let $e=[{role:`help`,id:e.bn.help,submenu:[{label:`Codex Documentation`,click:()=>{n.shell.openExternal(`https://developers.openai.com/codex/app`)}}]}],et=n.Menu.buildFromTemplate($e);n.Menu.setApplicationMenu(et);";
+  const patched = applyPatchTwice(applyLinuxBuildInfoTrayPatch, source);
+
+  assert.match(patched, /function codexLinuxGetBuildInfo\(\)/);
+  assert.match(patched, /"codex-linux-get-build-info":async\(\)=>codexLinuxGetBuildInfo\(\)/);
+  assert.match(
+    patched,
+    /"codex-linux-open-build-info-commit":async\(\)=>codexLinuxOpenBuildInfoCommit\(\)/,
+  );
+  assert.match(
+    patched,
+    /"codex-linux-show-build-info":async\(\)=>\{await codexLinuxShowBuildInfo\(\);return\{success:!0\}\}/,
+  );
 });
 
 test("adds Linux build information to current tray menu shape", () => {
@@ -1746,6 +1800,28 @@ test("adds Linux build information to the app Help menu", () => {
     patched,
     /\{role:`help`,id:e\.bn\.help,submenu:\[\.\.\.process\.platform===`linux`\?\[\{label:`Build Information`,click:\(\)=>\{codexLinuxShowBuildInfo\(\)\}\},\{type:`separator`\}\]:\[\],\{label:`Codex Documentation`/,
   );
+});
+
+test("makes About dialog prefer the bundled Linux icon asset", () => {
+  const iconPathExpression = "process.resourcesPath+`/../content/webview/assets/app-test.png`";
+  const source = [
+    "let a=require(`electron`),r={T:()=>null,V:()=>({formatMessage:({defaultMessage:e})=>e})},t={dt:()=>null,Kr:()=>null};",
+    "var $X=`codex.aboutDialog.title`,eZ=`About {appName}`,tZ=`codex.aboutDialog.ok`,nZ=`codex.aboutDialog.versionLine`,rZ=`Version {version}`,iZ=`codex.aboutDialog.versionLineWithDate`,aZ=`Version {version} • Released {releaseDate}`,oZ=`codex.aboutDialog.buildInfoLabel`,sZ=`Build information`,cZ=380,lZ=360,uZ=72,pZ=null;",
+    "async function bZ(){let e=process.platform===`darwin`,t=e?r.T():process.execPath,[n,i]=await Promise.all([e?Fw(t):null,a.app.getFileIcon(t,{size:process.platform===`win32`?`large`:`normal`})]);return{htmlIconDataUrl:n??(i.isEmpty()?null:i.resize({width:uZ,height:uZ,quality:`best`}).toDataURL()),windowIcon:i}}",
+    "let d={windowIcon:null},q={...d.windowIcon.isEmpty()?{}:{icon:d.windowIcon}};",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxAboutDialogPatch, source, iconPathExpression);
+
+  assert.match(
+    patched,
+    new RegExp(`nativeImage\\.createFromPath\\(${escapeRegExp(iconPathExpression)}\\)`),
+  );
+  assert.match(patched, /process\.platform===`linux`\?null:e\?Fw\(t\):null/);
+  assert.match(patched, /windowIcon==null\|\|d\.windowIcon\.isEmpty\(\)\?\{\}:\{icon:d\.windowIcon\}/);
+  assert.match(patched, /i==null\|\|i\.isEmpty\(\)\?null:i\.resize\(/);
+  assert.match(patched, /windowIcon:i\?\?null/);
+  assert.doesNotThrow(() => new Function(patched));
 });
 
 test("adds Linux tray support for current minified window and startup identifiers", () => {
@@ -2252,6 +2328,11 @@ test("keeps Linux desktop toggles visible with native Keyboard Shortcuts", () =>
     assert.match(linuxDesktopSource, /System tray/);
     assert.match(linuxDesktopSource, /Warm start/);
     assert.match(linuxDesktopSource, /Install updates when you close Codex/);
+    assert.match(linuxDesktopSource, /Build information/);
+    assert.match(linuxDesktopSource, /Linux source commit/);
+    assert.match(linuxDesktopSource, /Copy commit/);
+    assert.match(linuxDesktopSource, /Open commit/);
+    assert.match(linuxDesktopSource, /codex-linux-get-build-info/);
     assert.match(linuxDesktopSource, /codex-linux-system-tray-enabled/);
     assert.match(linuxDesktopSource, /codex-linux-auto-update-on-exit/);
     assert.match(linuxDesktopSource, /import\{z as __post\}from"\.\/setting-storage-A\.js"/);
@@ -3242,6 +3323,31 @@ test("enables Browser Use availability on Linux when only the Statsig gate is di
   assert.match(patched, /featureName:`browser_use`/);
 });
 
+test("enables external Browser Use availability on Linux without the upstream rollout flag", () => {
+  const source =
+    "function m(e){let t=(0,l.c)(5),{hostId:n,windowType:r}=e,a=r===void 0?`electron`:r,o=i(`410065390`),s;t[0]===n?s=t[1]:(s={featureName:`browser_use_external`,hostId:n},t[0]=n,t[1]=s);let c=u(s),d=a===`chrome-extension`||o&&c.enabled&&!c.isLoading,f=a===`chrome-extension`?!1:c.isLoading,p;return t[2]!==d||t[3]!==f?(p={allowed:d,available:d,isLoading:f},t[2]=d,t[3]=f,t[4]=p):p=t[4],p}";
+
+  const patched = applyPatchTwice(applyLinuxBrowserUseExternalAvailabilityPatch, source);
+
+  assert.match(
+    patched,
+    /d=a===`chrome-extension`\|\|navigator\.userAgent\.includes\(`Linux`\)\|\|o&&c\.enabled&&!c\.isLoading/,
+  );
+  assert.match(
+    patched,
+    /f=a===`chrome-extension`\|\|navigator\.userAgent\.includes\(`Linux`\)\?!1:c\.isLoading/,
+  );
+  assert.match(patched, /featureName:`browser_use_external`/);
+  assert.match(patched, /i\(`410065390`\)/);
+});
+
+test("keeps already patched external Browser Use availability unchanged", () => {
+  const source =
+    "function m(e){let t=(0,l.c)(5),{hostId:n,windowType:r}=e,a=r===void 0?`electron`:r,o=i(`410065390`),s;t[0]===n?s=t[1]:(s={featureName:`browser_use_external`,hostId:n},t[0]=n,t[1]=s);let c=u(s),d=a===`chrome-extension`||navigator.userAgent.includes(`Linux`)||o&&c.enabled&&!c.isLoading,f=a===`chrome-extension`||navigator.userAgent.includes(`Linux`)?!1:c.isLoading,p;return p}";
+
+  assert.equal(applyPatchTwice(applyLinuxBrowserUseExternalAvailabilityPatch, source), source);
+});
+
 test("allows Browser Use non-local navigation on Linux without the upstream rollout flag", () => {
   const source =
     "function mx(){let e=(0,Z.c)(20),t=q(Ss).value,n;e[0]===t?n=e[1]:(n=vs(t),e[0]=t,e[1]=n);let r=n,i=J(fl.activeTab$),a=J(Xn),o=ka(`3903563814`),s=ka(`2327881676`),c,l;e[2]!==i||e[3]!==r||e[4]!==a||e[5]!==t.pathname||e[6]!==t.search?(c=()=>{if(r==null)return;let e=ml(i,r);ci.dispatchMessage(`browser-sidebar-owner-sync`,{conversationId:r})},l=[i,r,a,t.pathname,t.search],e[2]=i,e[3]=r,e[4]=a,e[5]=t.pathname,e[6]=t.search,e[7]=c,e[8]=l):(c=e[7],l=e[8]),(0,$.useLayoutEffect)(c,l);let u,d;e[9]===o?(u=e[10],d=e[11]):(u=()=>{ux||ci.dispatchMessage(`browser-use-non-local-sites-allowed-changed`,{allowed:o})},d=[o],e[9]=o,e[10]=u,e[11]=d),(0,$.useEffect)(u,d);return null}";
@@ -3968,11 +4074,145 @@ test("patchExtractedApp records a structured patch report", () => {
     assert.equal(report.mainBundle, "main.js");
     assert.equal(report.iconAsset, "app-test.png");
     assert.equal(report.desktopName, "codex-desktop.desktop");
-    assert.ok(report.patches.some((patch) => patch.name === "main-process-ui" && patch.status === "applied"));
+    assert.deepEqual(report.enabledFeatures, enabledLinuxFeatureIds());
+    assert.ok(
+      report.patches.some(
+        (patch) =>
+          patch.name === "main-process-ui" &&
+          patch.status === "failed-required" &&
+          patch.sourceKind === "core" &&
+          Array.isArray(patch.warnings) &&
+          patch.warnings.length > 0,
+      ),
+    );
     assert.ok(report.patches.some((patch) => patch.name === "keybinds-settings" && patch.status === "skipped-optional"));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("feature patch descriptors honor explicit feature config overrides", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-patch-override-"));
+  try {
+    const featuresRoot = path.join(tempRoot, "linux-features");
+    const featureDir = path.join(featuresRoot, "temp-feature");
+    const featureConfigPath = path.join(tempRoot, "custom-features.json");
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.writeFileSync(path.join(featuresRoot, "features.example.json"), JSON.stringify({ enabled: [] }));
+    fs.writeFileSync(
+      path.join(featureDir, "feature.json"),
+      JSON.stringify({
+        id: "temp-feature",
+        title: "Temp Feature",
+        defaultEnabled: false,
+        entrypoints: { patches: "./patch.js" },
+      }),
+    );
+    fs.writeFileSync(path.join(featureDir, "README.md"), "# Temp Feature\n");
+    fs.writeFileSync(
+      path.join(featureDir, "patch.js"),
+      [
+        "\"use strict\";",
+        "module.exports=[{",
+        "id:\"temp-feature-main-bundle\",",
+        "phase:\"main-bundle\",",
+        "ciPolicy:\"optional\",",
+        "apply:(source)=>source",
+        "}];",
+      ].join("\n"),
+    );
+    fs.writeFileSync(featureConfigPath, JSON.stringify({ enabled: ["temp-feature"] }));
+
+    const descriptors = featurePatchDescriptors({ featuresRoot, featuresConfigPath: featureConfigPath });
+    assert.ok(descriptors.some((descriptor) => descriptor.id === "feature:temp-feature:temp-feature-main-bundle"));
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("patchExtractedApp report honors explicit feature config overrides", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-patch-report-feature-override-"));
+  try {
+    const buildDir = path.join(tempRoot, ".vite", "build");
+    const assetsDir = path.join(tempRoot, "webview", "assets");
+    const featuresRoot = path.join(tempRoot, "linux-features");
+    const featureDir = path.join(featuresRoot, "temp-feature");
+    const featureConfigPath = path.join(tempRoot, "custom-features.json");
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.mkdirSync(featureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(buildDir, "main.js"),
+      [
+        mainBundlePrefix,
+        "process.platform===`win32`&&k.removeMenu(),",
+        "codexTempFeatureDisabled()",
+      ].join(""),
+    );
+    fs.writeFileSync(path.join(assetsDir, "app-test.png"), "");
+    fs.writeFileSync(path.join(tempRoot, "package.json"), JSON.stringify({ name: "codex" }));
+    fs.writeFileSync(path.join(featuresRoot, "features.example.json"), JSON.stringify({ enabled: [] }));
+    fs.writeFileSync(
+      path.join(featureDir, "feature.json"),
+      JSON.stringify({
+        id: "temp-feature",
+        title: "Temp Feature",
+        defaultEnabled: false,
+        entrypoints: { patches: "./patch.js" },
+      }),
+    );
+    fs.writeFileSync(path.join(featureDir, "README.md"), "# Temp Feature\n");
+    fs.writeFileSync(
+      path.join(featureDir, "patch.js"),
+      [
+        "\"use strict\";",
+        "module.exports=[{",
+        "id:\"temp-feature-main-bundle\",",
+        "phase:\"main-bundle\",",
+        "ciPolicy:\"optional\",",
+        "apply:(source)=>source.includes(\"codexTempFeatureDisabled()\")?source.replace(\"codexTempFeatureDisabled()\",\"codexTempFeatureEnabled()\"):(source)",
+        "}];",
+      ].join("\n"),
+    );
+    fs.writeFileSync(featureConfigPath, JSON.stringify({ enabled: ["temp-feature"] }));
+
+    const report = createPatchReport();
+    patchExtractedApp(tempRoot, { report, featuresRoot, featuresConfigPath: featureConfigPath });
+
+    assert.deepEqual(report.enabledFeatures, ["temp-feature"]);
+    assert.ok(
+      report.patches.some(
+        (patch) =>
+          patch.name === "feature:temp-feature:temp-feature-main-bundle" && patch.status === "applied",
+      ),
+    );
+    assert.match(fs.readFileSync(path.join(buildDir, "main.js"), "utf8"), /codexTempFeatureEnabled\(\)/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("patch report summary separates required core, optional core, and optional feature drift", () => {
+  const summary = summarizePatchReport({
+    enabledFeatures: ["remote-mobile-control"],
+    patches: [
+      { name: "main-process-ui", status: "applied", sourceKind: "core", ciPolicy: "required-upstream" },
+      { name: "linux-app-updater-bridge", status: "skipped-optional", sourceKind: "core", ciPolicy: "optional" },
+      {
+        name: "feature:remote-mobile-control:linux-remote-mobile-conversation-hydration",
+        status: "applied-with-warnings",
+        sourceKind: "feature",
+        featureId: "remote-mobile-control",
+        ciPolicy: "optional",
+      },
+    ],
+  });
+
+  assert.deepEqual(summary.enabledFeatures, ["remote-mobile-control"]);
+  assert.deepEqual(summary.groups.requiredCore.statusCounts, { applied: 1 });
+  assert.deepEqual(summary.groups.optionalCore.statusCounts, { "skipped-optional": 1 });
+  assert.deepEqual(summary.groups.optionalFeatures.statusCounts, { "applied-with-warnings": 1 });
+  assert.equal(summary.groups.optionalFeatures.byFeature["remote-mobile-control"].count, 1);
 });
 
 test("patch report marks missing required webview assets as required failures", () => {
