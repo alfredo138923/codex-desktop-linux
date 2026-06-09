@@ -64,6 +64,7 @@ const {
 } = require("./patches/launch-actions.js");
 const {
   applyBrowserUseNodeReplApprovalPatch,
+  applyLinuxAboutDialogPatch,
   applyLinuxBuildInfoTrayPatch,
   applyLinuxChromeExtensionStatusPatch,
   applyLinuxExplicitIpcQuitPatch,
@@ -106,6 +107,7 @@ const {
   applyLinuxAppSunsetPatch,
   applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxBrowserUseAvailabilityPatch,
+  applyLinuxBrowserUseExternalAvailabilityPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxConfigWriteVersionConflictPatch,
   applyLinuxI18nGatePatch,
@@ -171,6 +173,7 @@ module.exports = {
   applyLinuxDesktopSettingsIndexPatch,
   applyLinuxDesktopSettingsSectionsPatch,
   applyLinuxDesktopSettingsSharedPatch,
+  applyLinuxAboutDialogPatch,
   applyLinuxAppSunsetPatch,
   applyLinuxAppUpdaterBridgePatch,
   applyLinuxAppUpdaterMenuPatch,
@@ -178,6 +181,7 @@ module.exports = {
   applyLinuxAvatarOverlayMascotDragOnlyPatch,
   applyLinuxBrowserUseIabVisibleOnCreatePatch,
   applyLinuxBrowserUseAvailabilityPatch,
+  applyLinuxBrowserUseExternalAvailabilityPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxBuildInfoTrayPatch,
   applyLinuxChromeExtensionStatusPatch,
