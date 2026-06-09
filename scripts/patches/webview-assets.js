@@ -282,16 +282,40 @@ function applyLinuxAppSunsetPatch(currentSource) {
   return currentSource;
 }
 
+function applyLinuxAvatarOverlayMascotShapePatch(currentSource) {
+  if (currentSource.includes("codexLinuxAvatarMascotShape")) {
+    return currentSource;
+  }
+
+  const elementSizeRegex =
+    /function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{if\(\2==null\)return null;let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\2\.querySelector\(([A-Za-z_$][\w$]*)\)\),([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\2\.querySelector\(([A-Za-z_$][\w$]*)\)\);return \3==null\?null:\{mascot:\3,tray:\6\}\}/;
+  if (!elementSizeRegex.test(currentSource)) {
+    return currentSource;
+  }
+
+  const mascotShapeHelper =
+    "function codexLinuxAvatarMascotShape(e,t){let n=e?.style?.backgroundImage??``;if(n.includes(`data:`))return null;let r=e?.dataset?.avatarAssetRef??e?.getAttribute?.(`data-avatar-asset-ref`),i={bsod:[160,180],codex:[166,170],dewey:[182,180],fireball:[155,175],hoots:[182,198],\"null-signal\":[168,180],rocky:[182,154],seedy:[141,180],stacky:[158,180]}[r];return i==null?null:{left:0,top:0,width:Math.ceil(t.width*i[0]/192),height:Math.ceil(t.height*i[1]/208)}}";
+
+  return currentSource.replace(
+    elementSizeRegex,
+    (
+      _match,
+      functionName,
+      rootVar,
+      mascotVar,
+      mascotMeasureFn,
+      mascotSelectorVar,
+      trayVar,
+      trayMeasureFn,
+      traySelectorVar,
+    ) =>
+      `${mascotShapeHelper}function ${functionName}(${rootVar}){if(${rootVar}==null)return null;let codexLinuxAvatarElement=${rootVar}.querySelector(${mascotSelectorVar}),${mascotVar}=${mascotMeasureFn}(codexLinuxAvatarElement),${trayVar}=${trayMeasureFn}(${rootVar}.querySelector(${traySelectorVar}));return ${mascotVar}==null?null:{mascot:${mascotVar},mascotShape:codexLinuxAvatarMascotShape(codexLinuxAvatarElement,${mascotVar}),tray:${trayVar}}}`,
+  );
+}
+
 function applyLinuxAvatarOverlayMascotDragOnlyPatch(currentSource) {
   let patchedSource = currentSource;
-  const nativeDragStyleId = "codex-linux-avatar-native-drag-style";
-  if (
-    patchedSource.includes("data-avatar-mascot") &&
-    !patchedSource.includes(nativeDragStyleId)
-  ) {
-    patchedSource +=
-      `;(()=>{if(typeof document<\`u\`&&!document.getElementById(\`${nativeDragStyleId}\`)){let e=document.createElement(\`style\`);e.id=\`${nativeDragStyleId}\`,e.textContent=\`[data-avatar-mascot="true"]{-webkit-app-region:drag;app-region:drag}[data-avatar-mascot="true"] .no-drag{-webkit-app-region:no-drag;app-region:no-drag}\`,document.head.appendChild(e)}})();`;
-  }
+  patchedSource = applyLinuxAvatarOverlayMascotShapePatch(patchedSource);
   if (
     !patchedSource.includes("avatar-overlay-drag-move`,{screenX:") &&
     patchedSource.includes("avatar-overlay-drag-move")

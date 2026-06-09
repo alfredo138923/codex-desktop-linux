@@ -976,6 +976,7 @@ function avatarOverlayBundleFixture() {
     "showWindow(e){if(e.isDestroyed())return;let t=this.isOpen();e.moveTop(),e.showInactive(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){this.windowManager.sendMessageToAllRegisteredWindows({type:`avatar-overlay-open-state-changed`,isOpen:this.isOpen()})}",
     "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}",
     "refreshCursorAtCurrentMousePosition(e){if(e.isDestroyed())return;let t=n.screen.getCursorScreenPoint(),r=e.getContentBounds(),i=t.x-r.x,a=t.y-r.y;i<0||a<0||i>r.width||a>r.height||e.webContents.sendInputEvent({type:`mouseMove`,x:i,y:a,movementX:0,movementY:0})}",
+    "function avatarOverlayDispatcher(e,i){switch(i.type){case`avatar-overlay-element-size-changed`:this.avatarOverlayManager.setElementSize(e.id,{isTrayVisible:i.isTrayVisible,mascot:i.mascot,tray:i.tray});break;}}",
     "};",
   ].join("");
 }
@@ -985,6 +986,16 @@ function avatarOverlayPageBundleFixture() {
     "let Q=at,ot;",
     "ot=e=>{e.button!==0||!(e.target instanceof Element)||e.target.closest(`.no-drag`)!=null||(e.preventDefault(),e.currentTarget.setPointerCapture?.(e.pointerId),ke.current={startedOnMascot:e.target.closest(`[data-avatar-mascot=\"true\"]`)!=null,hasMoved:!1,pointerId:e.pointerId,samples:[U(e)],screenX:e.screenX,screenY:e.screenY},y.dispatchMessage(`avatar-overlay-drag-start`,{pointerWindowX:e.clientX,pointerWindowY:e.clientY}),A(!0),E(null))};",
     "let lt=e=>{let t=ke.current;if(t==null||t.pointerId!==e.pointerId)return;let n=U(e);t.samples=Ce([...t.samples,n]);let r=n.screenX-t.screenX,i=n.screenY-t.screenY;Math.abs(r)<sn&&Math.abs(i)<sn||(t.hasMoved=!0,t.screenX=n.screenX,t.screenY=n.screenY,E(e=>Mn({currentDragState:e,deltaX:r})),y.dispatchMessage(`avatar-overlay-drag-move`,{}))};",
+  ].join("");
+}
+
+function avatarOverlayPageElementSizeFixture() {
+  return [
+    avatarOverlayPageBundleFixture(),
+    "var ln=`.codex-avatar-root`,un=`[data-avatar-overlay-size='notification-tray']`;",
+    "function Nn(e){if(e==null)return null;let t=Fn(e.querySelector(ln)),n=In(e.querySelector(un));return t==null?null:{mascot:t,tray:n}}",
+    "function Fn(e){if(e==null||zn(e))return null;let t=e.getBoundingClientRect();return t.width<=0||t.height<=0?null:{width:Math.ceil(t.width),height:Math.ceil(t.height)}}",
+    "function In(e){if(e==null||zn(e))return null;let t=e.getBoundingClientRect();return t.width<=0||t.height<=0?null:{width:Math.ceil(t.width),height:Math.ceil(t.height)}}",
   ].join("");
 }
 
@@ -1541,8 +1552,9 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /if\(t==null\)return null/);
   assert.match(patched, /if\(t==null\)return!1;let n=JSON\.stringify\(t\)/);
   assert.match(patched, /e\.setShape\(t\),this\.codexLinuxAvatarInputShapeKey=n;return!0/);
-  assert.match(patched, /,a=\[i\(t\.mascot\)\];this\.traySize!=null&&a\.push\(i\(t\.tray\)\);return a\.filter\(Boolean\)/);
-  assert.doesNotMatch(patched, /if\(this\.dragState!=null\)\{let t=e\.getContentBounds\(\);return\[\{x:0,y:0,width:t\.width,height:t\.height\}\]\}/);
+  assert.match(patched, /codexLinuxMascotInputRegion\(e\)\{let t=e\.mascot,n=this\.codexLinuxMascotShape/);
+  assert.match(patched, /,a=\[i\(this\.codexLinuxMascotInputRegion\(t\)\)\];this\.traySize!=null&&a\.push\(i\(t\.tray\)\);return a\.filter\(Boolean\)/);
+  assert.match(patched, /if\(this\.dragState!=null\)\{let t=e\.getContentBounds\(\);return\[\{x:0,y:0,width:t\.width,height:t\.height\}\]\}/);
   assert.match(patched, /process\.platform!==`linux`/);
   assert.match(patched, /codexLinuxAvatarUsesNativeWayland\(\)\{let e=process\.argv\.join\(` `\);if\(/);
   assert.match(patched, /if\(process\.platform===`linux`&&this\.codexLinuxAvatarUsesNativeWayland\(\)\)\{this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.pointerInteractive=!0,this\.mousePassthroughEnabled&&\(this\.mousePassthroughEnabled=!1\),e\.setIgnoreMouseEvents\(!1\);return\}/);
@@ -1553,22 +1565,25 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /this\.codexLinuxIsCursorInAvatarInteractiveRegion\(e\)/);
   assert.match(patched, /catch\{t=!0\}/);
   assert.match(patched, /this\.pointerInteractive=t/);
-  assert.match(patched, /return s\(t\.mascot\)\|\|this\.traySize!=null&&s\(t\.tray\)/);
+  assert.match(patched, /return s\(this\.codexLinuxMascotInputRegion\(t\)\)\|\|this\.traySize!=null&&s\(t\.tray\)/);
+  assert.match(patched, /let codexLinuxMascotDragRegion=process\.platform===`linux`&&typeof this\.codexLinuxMascotInputRegion==`function`\?this\.codexLinuxMascotInputRegion\(a\):a\.mascot;this\.dragState=\{pointerAnchorX:t-codexLinuxMascotDragRegion\.left,pointerAnchorY:r-codexLinuxMascotDragRegion\.top/);
   assert.match(patched, /displayBounds:n\.screen\.getDisplayNearestPoint\(n\.screen\.getCursorScreenPoint\(\)\)\.bounds\},process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)\}moveDrag\(e,codexLinuxDragPoint\)/);
   assert.match(patched, /moveDrag\(e,codexLinuxDragPoint\)/);
   assert.match(patched, /this\.moveDragToCurrentCursor\(t,codexLinuxDragPoint\)/);
   assert.match(patched, /moveDragToCurrentCursor\(e,codexLinuxDragPoint\)\{let t=this\.dragState;if\(t==null\)return;let r=codexLinuxDragPoint!=null&&Number\.isFinite\(codexLinuxDragPoint\.screenX\)&&Number\.isFinite\(codexLinuxDragPoint\.screenY\)\?\{x:codexLinuxDragPoint\.screenX,y:codexLinuxDragPoint\.screenY\}:n\.screen\.getCursorScreenPoint\(\)/);
   assert.match(patched, /this\.dragState\?\.hasMoved&&process\.platform!==`linux`&&this\.moveDragToCurrentCursor\(t\)/);
   assert.match(patched, /this\.dragState=null,this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
-  assert.match(patched, /setElementSize\(e,\{isTrayVisible:codexLinuxIsTrayVisible,mascot:t,tray:n\}\)/);
+  assert.match(patched, /setElementSize\(e,\{isTrayVisible:codexLinuxIsTrayVisible,mascot:t,mascotShape:codexLinuxMascotShape,tray:n\}\)/);
+  assert.match(patched, /case`avatar-overlay-element-size-changed`:this\.avatarOverlayManager\.setElementSize\(e\.id,\{isTrayVisible:i\.isTrayVisible,mascot:i\.mascot,mascotShape:i\.mascotShape,tray:i\.tray\}\);break/);
+  assert.match(patched, /this\.mascotSize=t,this\.codexLinuxMascotShape=process\.platform===`linux`\?codexLinuxMascotShape\?\?null:null/);
   assert.match(patched, /this\.traySize=process\.platform===`linux`&&codexLinuxIsTrayVisible===!1\?null:n/);
   assert.match(patched, /this\.applyLayout\(r\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
-  assert.match(patched, /this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.rendererReady=/);
+  assert.match(patched, /this\.codexLinuxMascotShape=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.rendererReady=/);
   assert.match(patched, /traySize:process\.platform===`linux`&&typeof this\.codexLinuxIsI3Session==`function`&&this\.codexLinuxIsI3Session\(\)\?this\.traySize:this\.traySize\?\?sV/);
   assert.match(patched, /this\.setWindowBounds\(e,r\.windowBounds\),this\.sendLayoutToRenderer\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.match(patched, /e\.moveTop\(\),process\.platform===`linux`\?e\.show\(\):e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.doesNotMatch(patched, /codexLinuxRecoverAvatarPointerInteractivity/);
-  assert.match(patched, /this\.window===t&&\(this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
+  assert.match(patched, /this\.window===t&&\(this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxMascotShape=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
   assert.match(patched, /focusable:process\.platform===`linux`\?!0:!1/);
   assert.match(patched, /process\.platform===`linux`&&\(t\.setSkipTaskbar\(!0\),t\.setAlwaysOnTop\(!0,`screen-saver`\)\)/);
   assert.match(patched, /process\.platform!==`linux`&&r\.setFocusable\(!1\)/);
@@ -1585,9 +1600,35 @@ test("restricts Linux avatar overlay drag start to the mascot element", () => {
   assert.match(patched, /if\(e\.target\.closest\(`\[data-avatar-mascot="true"\]`\)==null\)return/);
   assert.match(patched, /ke\.current=\{startedOnMascot:!0,hasMoved:!1/);
   assert.match(patched, /y\.dispatchMessage\(`avatar-overlay-drag-move`,\{screenX:n\.screenX,screenY:n\.screenY\}\)/);
-  assert.match(patched, /codex-linux-avatar-native-drag-style/);
-  assert.match(patched, /\[data-avatar-mascot="true"\]\{-webkit-app-region:drag;app-region:drag\}/);
+  assert.doesNotMatch(patched, /codex-linux-avatar-native-drag-style/);
+  assert.doesNotMatch(patched, /app-region:drag/);
   assert.doesNotMatch(patched, /startedOnMascot:e\.target\.closest/);
+});
+
+test("does not add Electron native drag style to the Linux avatar overlay", () => {
+  const source = `${avatarOverlayPageBundleFixture()}\n//# sourceMappingURL=avatar-overlay-page.js.map\n`;
+
+  const patched = applyPatchTwice(applyLinuxAvatarOverlayMascotDragOnlyPatch, source);
+
+  assert.match(patched, /\/\/# sourceMappingURL=avatar-overlay-page\.js\.map/);
+  assert.doesNotMatch(patched, /codex-linux-avatar-native-drag-style/);
+  assert.doesNotMatch(patched, /app-region:drag/);
+});
+
+test("reports Linux avatar visual mascot shape with element size changes", () => {
+  const source = avatarOverlayPageElementSizeFixture();
+
+  const patched = applyPatchTwice(applyLinuxAvatarOverlayMascotDragOnlyPatch, source);
+
+  assert.match(patched, /function codexLinuxAvatarMascotShape\(e,t\)/);
+  assert.match(patched, /if\(n\.includes\(`data:`\)\)return null/);
+  assert.match(patched, /codex:\[166,170\]/);
+  assert.match(patched, /"null-signal":\[168,180\]/);
+  assert.match(
+    patched,
+    /let codexLinuxAvatarElement=e\.querySelector\(ln\),t=Fn\(codexLinuxAvatarElement\),n=In\(e\.querySelector\(un\)\);return t==null\?null:\{mascot:t,mascotShape:codexLinuxAvatarMascotShape\(codexLinuxAvatarElement,t\),tray:n\}/,
+  );
+  assert.equal((patched.match(/function codexLinuxAvatarMascotShape/g) ?? []).length, 1);
 });
 
 test("keeps avatar overlay layout sync working after layout alias drift", () => {
