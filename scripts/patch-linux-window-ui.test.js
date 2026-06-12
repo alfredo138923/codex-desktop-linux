@@ -123,7 +123,7 @@ const opaqueBackgroundBundleWithDriftingGw =
 const currentOpaqueBackgroundBundle =
   "var QK=`#00000000`,$K=`#000000`,eq=`#f9f9f9`;function vq(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`globalDictation`||e===`hotkeyWindowHome`||e===`hotkeyWindowThread`}function xq({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!vq(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?$K:eq,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!vq(t)?{backgroundColor:QK,backgroundMaterial:`mica`}:{backgroundColor:QK,backgroundMaterial:null}}";
 const currentOpaqueWindowSurfaceBackgroundBundle =
-  "var W4=`#00000000`,G4=`#000000`,K4=`#f9f9f9`;function g3(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`globalDictation`||e===`hotkeyWindowHome`||e===`hotkeyWindowThread`||e===`hud`}function S3({platform:e,appearance:t,opaqueWindowSurfaceEnabled:n,prefersDarkColors:r}){return n?{backgroundColor:r?G4:K4,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!g3(t)?{backgroundColor:W4,backgroundMaterial:`mica`}:{backgroundColor:W4,backgroundMaterial:null}}";
+  "var W4=`#00000000`,G4=`#000000`,K4=`#f9f9f9`;function g3(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`globalDictation`||e===`hotkeyWindowHome`||e===`hotkeyWindowThread`||e===`hud`}function v3({appearance:e,opaqueWindowsEnabled:t,platform:n}){return t&&!g3(e)&&(n===`darwin`||n===`win32`)}function S3({platform:e,appearance:t,opaqueWindowSurfaceEnabled:n,prefersDarkColors:r}){return n?{backgroundColor:r?G4:K4,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!g3(t)?{backgroundColor:W4,backgroundMaterial:`mica`}:{backgroundColor:W4,backgroundMaterial:null}}class k3{isOpaqueWindowsEnabled(){return theme?.opaqueWindows===!0}shouldUseOpaqueWindowSurface(e,t,n){return this.shouldAlwaysUseOpaqueWindowSurface(e)}shouldAlwaysUseOpaqueWindowSurface(e){return v3({appearance:e,opaqueWindowsEnabled:this.isOpaqueWindowsEnabled(),platform:process.platform})||!BA()&&!g3(e)}}";
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1064,8 +1064,8 @@ function avatarOverlayBundleFixture() {
     "showWindow(e){if(e.isDestroyed())return;let t=this.isOpen();e.moveTop(),e.showInactive(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){this.windowManager.sendMessageToAllRegisteredWindows({type:`avatar-overlay-open-state-changed`,isOpen:this.isOpen()})}",
     "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}",
     "refreshCursorAtCurrentMousePosition(e){if(e.isDestroyed())return;let t=n.screen.getCursorScreenPoint(),r=e.getContentBounds(),i=t.x-r.x,a=t.y-r.y;i<0||a<0||i>r.width||a>r.height||e.webContents.sendInputEvent({type:`mouseMove`,x:i,y:a,movementX:0,movementY:0})}",
-    "function avatarOverlayDispatcher(e,i){switch(i.type){case`avatar-overlay-element-size-changed`:this.avatarOverlayManager.setElementSize(e.id,{isTrayVisible:i.isTrayVisible,mascot:i.mascot,tray:i.tray});break;}}",
     "};",
+    "function avatarOverlayDispatcher(e,i){switch(i.type){case`avatar-overlay-element-size-changed`:this.avatarOverlayManager.setElementSize(e.id,{isTrayVisible:i.isTrayVisible,mascot:i.mascot,tray:i.tray});break;}}",
   ].join("");
 }
 
@@ -1395,6 +1395,62 @@ test("updates the Linux native titlebar overlay when nativeTheme changes", () =>
   assert.doesNotMatch(patched, /data-codex-window-type/);
 });
 
+test("redirects the renamed Linux-aware titlebar overlay sync away from the transparent win32 helper", () => {
+  const source = [
+    "function A2(e){return e===`avatarOverlay`}",
+    "function I2({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!A2(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?a2:o2,backgroundMaterial:e===`win32`?`none`:null}:e===`linux`&&!A2(t)?{backgroundColor:r?a2:o2,backgroundMaterial:null}:{backgroundColor:i2,backgroundMaterial:null}}",
+    "function b2(e=1){return{color:i2,symbolColor:a.nativeTheme.shouldUseDarkColors?v2:_2,height:Math.round(g2*e)}}",
+    "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:y2(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:y2(r)}:n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:b2(r)}:{titleBarStyle:`default`};",
+    "installApplicationMenuTitleBarOverlaySync(e,t){if(process.platform!==`win32`&&process.platform!==`linux`||t!==`primary`)return;let n=()=>{e.isDestroyed()||e.setTitleBarOverlay(b2(this.windowZooms.get(e.id)))};return a.nativeTheme.on(`updated`,n),n(),()=>{a.nativeTheme.off(`updated`,n)}}",
+    "process.platform===`darwin`?n.setWindowButtonPosition(y2(t)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(n.id,t),n.setTitleBarOverlay(b2(t)))",
+  ].join("");
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxNativeTitlebarPatch, source),
+  );
+
+  assert.match(
+    patched,
+    /n===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:codexLinuxTitleBarOverlay\(r\)\}/,
+  );
+  assert.match(
+    patched,
+    /installApplicationMenuTitleBarOverlaySync\(e,t\)\{if\(\(process\.platform!==`win32`&&process\.platform!==`linux`\)\|\|t!==`primary`\)return/,
+  );
+  assert.match(
+    patched,
+    /e\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(this\.windowZooms\.get\(e\.id\)\):b2\(this\.windowZooms\.get\(e\.id\)\)\)/,
+  );
+  assert.match(
+    patched,
+    /n\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(t\):b2\(t\)\)/,
+  );
+  assert.doesNotMatch(patched, /setTitleBarOverlay\(b2\(/);
+  assert.deepEqual(warnings, []);
+});
+
+
+test("updates every Linux zoom titlebar overlay refresh call site", () => {
+  const source = [
+    "function A2(e){return e===`avatarOverlay`}",
+    "function I2({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!A2(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?a2:o2,backgroundMaterial:e===`win32`?`none`:null}:e===`linux`&&!A2(t)?{backgroundColor:r?a2:o2,backgroundMaterial:null}:{backgroundColor:i2,backgroundMaterial:null}}",
+    "function b2(e=1){return{color:i2,symbolColor:a.nativeTheme.shouldUseDarkColors?v2:_2,height:Math.round(g2*e)}}",
+    "case`primary`:return n===`darwin`?t?{titleBarStyle:`hiddenInset`,trafficLightPosition:y2(r)}:{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:y2(r)}:n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:b2(r)}:{titleBarStyle:`default`};",
+    "installApplicationMenuTitleBarOverlaySync(e,t){if(process.platform!==`win32`&&process.platform!==`linux`||t!==`primary`)return;let n=()=>{e.isDestroyed()||e.setTitleBarOverlay(b2(this.windowZooms.get(e.id)))};return a.nativeTheme.on(`updated`,n),n(),()=>{a.nativeTheme.off(`updated`,n)}}",
+    "process.platform===`darwin`?n.setWindowButtonPosition(y2(t)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(n.id,t),n.setTitleBarOverlay(b2(t)))",
+    "process.platform===`darwin`?o.setWindowButtonPosition(y2(i)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(o.id,i),o.setTitleBarOverlay(b2(i)))",
+  ].join("");
+  const patched = applyPatchTwice(applyLinuxNativeTitlebarPatch, source);
+
+  assert.equal(
+    (patched.match(/setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay/g) ?? []).length,
+    3,
+  );
+  assert.doesNotMatch(
+    patched,
+    /\(process\.platform===`win32`\|\|process\.platform===`linux`\)&&\(this\.windowZooms\.set\([^)]+\),[A-Za-z_$][\w$]*\.setTitleBarOverlay\(b2\([^)]+\)\)\)/,
+  );
+});
+
 test("adds a right-side safe area for Linux window controls in application menu chrome", () => {
   const source = [
     "var l=Object.freeze({default:Object.freeze({left:0,right:0}),mac:Object.freeze({legacy:Object.freeze({left:66+c,right:0}),modern:Object.freeze({left:76+c,right:0})}),applicationMenu:Object.freeze({left:0,right:0})});",
@@ -1538,6 +1594,10 @@ test("patches current opaque window surface background helper shape for Linux", 
   assert.match(
     patched,
     /:e===`linux`&&!g3\(t\)\?\{backgroundColor:r\?G4:K4,backgroundMaterial:null\}:e===`win32`&&!g3\(t\)\?/,
+  );
+  assert.match(
+    patched,
+    /shouldAlwaysUseOpaqueWindowSurface\(e\)\{return process\.platform===`linux`&&!g3\(e\)\|\|v3\(\{appearance:e,opaqueWindowsEnabled:this\.isOpaqueWindowsEnabled\(\),platform:process\.platform\}\)\|\|!BA\(\)&&!g3\(e\)\}/,
   );
   assert.match(patched, /opaqueWindowSurfaceEnabled:n/);
 });
@@ -1706,13 +1766,15 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.doesNotMatch(patched, /let\[,l,u,d,f\]=c/);
   assert.doesNotMatch(patched, /this\.codexLinuxIsI3Session\(\)\)\{this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.pointerInteractive=!0,this\.mousePassthroughEnabled&&\(this\.mousePassthroughEnabled=!1\),e\.setIgnoreMouseEvents\(!1\);return\}/);
   assert.match(patched, /if\(process\.platform===`linux`&&typeof e\.setShape==`function`\)\{/);
+  assert.match(patched, /if\(process\.platform===`linux`&&typeof e\.setShape==`function`\)\{this\.codexLinuxStartAvatarPassthroughRecovery\(\),/);
+  assert.doesNotMatch(patched, /if\(process\.platform===`linux`&&typeof e\.setShape==`function`\)\{this\.codexLinuxStopAvatarPassthroughRecovery\(\),/);
   assert.doesNotMatch(patched, /typeof e\.setShape==`function`&&!this\.codexLinuxIsI3Session\(\)/);
   assert.match(patched, /if\(t==null\)return null/);
-  assert.match(patched, /if\(t==null\)return!1;let n=JSON\.stringify\(t\)/);
+  assert.match(patched, /try\{let t=this\.codexLinuxBuildAvatarInputShape\(e\);if\(t==null\)return!1;let n=JSON\.stringify\(t\)/);
   assert.match(patched, /e\.setShape\(t\),this\.codexLinuxAvatarInputShapeKey=n;return!0/);
   assert.match(patched, /codexLinuxMascotInputRegion\(e\)\{let t=e\.mascot,n=this\.codexLinuxMascotShape/);
-  assert.match(patched, /,a=\[i\(this\.codexLinuxMascotInputRegion\(t\)\)\];this\.traySize!=null&&a\.push\(i\(t\.tray\)\);return a\.filter\(Boolean\)/);
-  assert.match(patched, /if\(this\.dragState!=null\)\{let t=e\.getContentBounds\(\);return\[\{x:0,y:0,width:t\.width,height:t\.height\}\]\}/);
+  assert.match(patched, /return\[i\(this\.codexLinuxMascotInputRegion\(t\)\),this\.traySize!=null\?i\(t\.tray\):null\]\.filter\(Boolean\)/);
+  assert.match(patched, /if\(this\.dragState!=null\|\|this\.pointerInteractive\)return\[\{x:0,y:0,width:r\.width,height:r\.height\}\]/);
   assert.match(patched, /process\.platform!==`linux`/);
   assert.match(patched, /codexLinuxAvatarUsesNativeWayland\(\)\{let e=process\.argv\.join\(` `\);if\(/);
   assert.match(patched, /if\(process\.platform===`linux`&&this\.codexLinuxAvatarUsesNativeWayland\(\)\)\{this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.pointerInteractive=!0,this\.mousePassthroughEnabled&&\(this\.mousePassthroughEnabled=!1\),e\.setIgnoreMouseEvents\(!1\);return\}/);
@@ -1721,9 +1783,11 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.doesNotMatch(patched, /typeof e\.setShape==`function`\)return;this\.codexLinuxAvatarPassthroughRecoveryTimer=setInterval/);
   assert.match(patched, /this\.dragState!=null/);
   assert.match(patched, /this\.codexLinuxIsCursorInAvatarInteractiveRegion\(e\)/);
+  assert.match(patched, /__codexWindowHit=__codexX>=0&&__codexY>=0&&__codexX<=__codexBounds\.width&&__codexY<=__codexBounds\.height/);
+  assert.match(patched, /return __codexHit\(this\.codexLinuxMascotInputRegion\(t\)\)\|\|this\.traySize!=null&&__codexHit\(t\.tray\)\|\|__codexWindowHit/);
+  assert.doesNotMatch(patched, /let r=r\.screen\.getCursorScreenPoint\(\)/);
   assert.match(patched, /catch\{t=!0\}/);
   assert.match(patched, /this\.pointerInteractive=t/);
-  assert.match(patched, /return s\(this\.codexLinuxMascotInputRegion\(t\)\)\|\|this\.traySize!=null&&s\(t\.tray\)/);
   assert.match(patched, /let codexLinuxMascotDragRegion=process\.platform===`linux`&&typeof this\.codexLinuxMascotInputRegion==`function`\?this\.codexLinuxMascotInputRegion\(a\):a\.mascot;this\.dragState=\{pointerAnchorX:t-codexLinuxMascotDragRegion\.left,pointerAnchorY:r-codexLinuxMascotDragRegion\.top/);
   assert.match(patched, /displayBounds:n\.screen\.getDisplayNearestPoint\(n\.screen\.getCursorScreenPoint\(\)\)\.bounds\},process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)\}moveDrag\(e,codexLinuxDragPoint\)/);
   assert.match(patched, /moveDrag\(e,codexLinuxDragPoint\)/);
@@ -1789,6 +1853,96 @@ test("reports Linux avatar visual mascot shape with element size changes", () =>
   assert.equal((patched.match(/function codexLinuxAvatarMascotShape/g) ?? []).length, 1);
 });
 
+test("Linux avatar overlay treats visible window content as interactive fallback", () => {
+  const patched = applyPatchTwice(
+    applyLinuxAvatarOverlayMousePassthroughPatch,
+    avatarOverlayBundleFixture(),
+  );
+  const context = {
+    globalThis: {},
+    process: {
+      env: {},
+      pid: 123,
+      platform: "linux",
+    },
+    require(moduleName) {
+      assert.equal(moduleName, "node:child_process");
+      return { execFile() {} };
+    },
+    pV(bounds) {
+      return bounds;
+    },
+    n: {
+      app: {
+        getName: () => "Codex",
+      },
+      screen: {
+        getCursorScreenPoint: () => ({ x: 5765, y: 1088 }),
+        getDisplayNearestPoint: () => ({ bounds: { x: 0, y: 0, width: 800, height: 600 } }),
+      },
+    },
+  };
+  vm.runInNewContext(`${patched};globalThis.AvatarOverlayController=fV;`, context);
+
+  const controller = new context.globalThis.AvatarOverlayController(
+    { sendMessageToAllRegisteredWindows() {} },
+    { set() {} },
+  );
+  controller.layout = {
+    mascot: { left: 220, top: 190, width: 113, height: 122 },
+    tray: { left: 57, top: 55, width: 276, height: 131 },
+  };
+  controller.traySize = controller.layout.tray;
+
+  assert.equal(
+    controller.codexLinuxIsCursorInAvatarInteractiveRegion({
+      getContentBounds: () => ({ x: 5743, y: 936, width: 356, height: 320 }),
+    }),
+    true,
+  );
+  assert.equal(
+    controller.codexLinuxIsCursorInAvatarInteractiveRegion({
+      getContentBounds: () => ({ x: 6000, y: 936, width: 100, height: 100 }),
+    }),
+    false,
+  );
+
+  const overlayWindow = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 5743, y: 936, width: 356, height: 320 }),
+    setShape() {},
+  };
+  const serializeShape = (shape) => JSON.parse(JSON.stringify(shape));
+  assert.deepEqual(serializeShape(controller.codexLinuxBuildAvatarInputShape(overlayWindow)), [
+    { x: 220, y: 190, width: 113, height: 122 },
+    { x: 57, y: 55, width: 276, height: 131 },
+  ]);
+  controller.pointerInteractive = true;
+  assert.deepEqual(serializeShape(controller.codexLinuxBuildAvatarInputShape(overlayWindow)), [
+    { x: 0, y: 0, width: 356, height: 320 },
+  ]);
+  assert.equal(
+    controller.codexLinuxApplyAvatarInputShape({
+      isDestroyed: () => false,
+      getContentBounds: () => {
+        throw new Error("drift");
+      },
+      setShape() {},
+    }),
+    false,
+  );
+  assert.equal(
+    controller.codexLinuxApplyAvatarInputShape({
+      isDestroyed: () => false,
+      getContentBounds: () => ({ x: 5743, y: 936, width: 356, height: 320 }),
+      setShape() {
+        throw new Error("unsupported");
+      },
+    }),
+    false,
+  );
+});
+
 test("keeps avatar overlay layout sync working after layout alias drift", () => {
   const source = avatarOverlayBundleFixture().replaceAll("r.windowBounds", "n.windowBounds");
 
@@ -1816,7 +1970,7 @@ test("keeps avatar overlay interactivity working after native presentation drift
   assert.match(patched, /process\.platform===`linux`&&e\.setAlwaysOnTop\(!0,`screen-saver`\),e\.moveTop\(\),process\.platform===`linux`\?e\.show\(\):e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\),!t&&this\.isOpen\(\)&&this\.broadcastOpenState\(\)\}showWindowIfReady/);
   assert.match(patched, /this\.cancelMomentum\(\),this\.clearMovedWindowPersist\(\),this\.window=null/);
   assert.doesNotMatch(patched, /let r=r\.screen\.getCursorScreenPoint\(\)/);
-  assert.match(patched, /let codexLinuxCursorPoint=r\.screen\.getCursorScreenPoint\(\),i=e\.getContentBounds\(\),a=codexLinuxCursorPoint\.x-i\.x,o=codexLinuxCursorPoint\.y-i\.y/);
+  assert.match(patched, /let __codexCursor=r\.screen\.getCursorScreenPoint\(\),__codexBounds=e\.getContentBounds\(\),__codexX=__codexCursor\.x-__codexBounds\.x,__codexY=__codexCursor\.y-__codexBounds\.y/);
 });
 
 test("adds Linux window icon handling when an icon asset is available", () => {
@@ -2888,7 +3042,7 @@ test("shows the profile dropdown settings route on Linux", () => {
 
 test("removes unsupported features from default app-server feature sync", () => {
   const source = [
-    "var GF=[`apps`,`auth_elicitation`,`enable_mcp_apps`,`memories`,`mentions_v2`,`plugins`,`remote_control`,`tool_call_mcp_elicitation`,`tool_search`,`tool_suggest`,te];",
+    "var GF=[`apps`,`auth_elicitation`,`enable_mcp_apps`,`memories`,`mentions_v2`,`plugins`,`remote_control`,`remote_plugin`,`tool_call_mcp_elicitation`,`tool_search`,`tool_suggest`,te];",
     "function KF(){let e=(0,Z.c)(6),t=K(G),[n]=ts(`statsig_default_enable_features`),r=Lc(),i=Io(),a,o;",
     "return e[0]!==r?(a=()=>{let r=qF(n);qn(`set-experimental-feature-enablement-for-host`,{hostId:t,enablement:r}).catch(n=>{q.error(`Failed to sync experimental feature enablement`,{sensitive:{error:n}})})},o=[r],e[0]=r,e[1]=a,e[2]=o):(a=e[1],o=e[2]),null}",
     "function qF(e){let t={};for(let n of GF){let r=e[n];r!=null&&(t[n]=r)}return t}",
@@ -2898,7 +3052,7 @@ test("removes unsupported features from default app-server feature sync", () => 
 
   assert.match(
     patched,
-    /var GF=\[`apps`,`memories`,`mentions_v2`,`plugins`,`remote_control`,`tool_call_mcp_elicitation`,`tool_suggest`\];/,
+    /var GF=\[`apps`,`memories`,`mentions_v2`,`plugins`,`remote_control`,`remote_plugin`,`tool_call_mcp_elicitation`,`tool_suggest`\];/,
   );
   assert.doesNotMatch(patched, /`auth_elicitation`/);
   assert.doesNotMatch(patched, /`enable_mcp_apps`/);
@@ -2926,7 +3080,7 @@ test("patches the matched app-server feature sync array when an identical array 
   assert.match(patched, new RegExp(`function OF\\(\\)\\{return GF\\}${escapeRegExp(supportedFeatureArray)}function KF`));
 });
 
-test("removes unsupported dynamic extra from current app-server feature sync", () => {
+test("preserves supported dynamic remote_plugin in current app-server feature sync", () => {
   const source = [
     "var GF=[`apps`,`memories`,`plugins`,`tool_call_mcp_elicitation`,`tool_suggest`],vI=`remote_plugin`;",
     "function KF(){let e=(0,Z.c)(6),t=K(G),[n]=ts(`statsig_default_enable_features`),r=Lc(),i=Io(),a,o;",
@@ -2936,9 +3090,22 @@ test("removes unsupported dynamic extra from current app-server feature sync", (
 
   const patched = applyPatchTwice(applyLinuxAppServerFeatureEnablementPatch, source);
 
-  assert.notEqual(patched, source);
-  assert.match(patched, /function qF\(e,t\)\{let n=\{\};for\(let r of GF\)\{let i=e\[r\];i!=null&&\(n\[r\]=i\)\}return n\}/);
-  assert.doesNotMatch(patched, /n\[vI\]=t/);
+  assert.equal(patched, source);
+  assert.match(patched, /n\[vI\]=t/);
+});
+
+test("preserves dynamic remote_plugin when the minified feature key contains regex syntax", () => {
+  const source = [
+    "var GF=[`apps`,`memories`,`plugins`,`tool_call_mcp_elicitation`,`tool_suggest`],v$I=`remote_plugin`;",
+    "function KF(){let e=(0,Z.c)(6),t=K(G),[n]=ts(`statsig_default_enable_features`),r=Lc(),i=Io(),a,o;",
+    "return e[0]!==r?(a=()=>{let r=qF(n,!0);qn(`set-experimental-feature-enablement-for-host`,{hostId:t,enablement:r})},o=[r],e[0]=r,e[1]=a,e[2]=o):(a=e[1],o=e[2]),null}",
+    "function qF(e,t){let n={};for(let r of GF){let i=e[r];i!=null&&(n[r]=i)}return n[v$I]=t,n}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxAppServerFeatureEnablementPatch, source);
+
+  assert.equal(patched, source);
+  assert.match(patched, /n\[v\$I\]=t/);
 });
 
 test("keeps already-sanitized dynamic app-server feature sync quiet", () => {
