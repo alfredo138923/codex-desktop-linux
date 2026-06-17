@@ -1143,6 +1143,27 @@ function currentAvatarOverlayBundleFixture() {
   ].join("");
 }
 
+function nativePointerAvatarOverlayBundleFixture() {
+  return [
+    "let a=require(`electron`),f=require(`node:child_process`);",
+    "var x2=`/avatar-overlay`,p0={width:356,height:320},w2={width:112,height:121},k2={width:0,height:0},O2={width:276,height:131};",
+    "var g2=class{window=null;rendererReady=!1;layout=null;mascotSize=w2;traySize=null;pointerInteractive=!1;mousePassthroughEnabled=!1;windowStagedForNativePresentation=!1;layoutMode=`legacy`;initialPresentationState=`waiting-for-layout`;compositionHost={getCursorPosition(){return null},setOverlayWindow(){},isNativeMaterialAttached(){return!1},moveBackingCanvases(){},isPrimaryMouseButtonPressed(){return!1},prepareDragFollowForOverlayMove(){}};nativePositionController={clear(){},position(){},handleWindowMove(){return!1},handleWindowShow(){}};",
+    "constructor(e,t){this.windowManager=e,this.globalState=t}",
+    "isOpen(){let e=this.window;return e!=null&&!e.isDestroyed()&&e.isVisible()&&!this.windowStagedForNativePresentation}",
+    "startDrag(e,t){let n=this.window;if(n==null||n.isDestroyed()||n.webContents.id!==e)return;this.cancelMomentum(),this.suppressNextRendererThrow=!1,this.clearDetachedDisplayRestore();let r=this.getLayout(n);this.nativePositionController.clear();let i=V2(this.compositionHost.getCursorPosition()),o=t.pointerScreenX!=null&&t.pointerScreenY!=null?{x:t.pointerScreenX,y:t.pointerScreenY}:a.screen.getCursorScreenPoint(),s=i??o,c=t.pointerWindowX-r.mascot.left,l=t.pointerWindowY-r.mascot.top;this.dragState=new h2(i==null?`renderer`:`native`,c,l,a.screen.getDisplayNearestPoint(s).bounds)}",
+    "moveDrag(e,t){let n=this.window;if(n==null||n.isDestroyed()||n.webContents.id!==e||this.dragState==null)return;this.cancelMomentum();let r=this.dragState;r.recordMovementIntent();let i=a.screen.getCursorScreenPoint(),o=r.getCursorPointForSource({native:r.cursorSource===`native`?V2(this.compositionHost.getCursorPosition()):null,renderer:{x:t?.pointerScreenX??i.x,y:t?.pointerScreenY??i.y}});o!=null&&this.moveDragToPointer(n,o)}",
+    "endDrag(e,t){let n=this.window;if(n==null||n.isDestroyed()||n.webContents.id!==e)return;let r=this.dragState;if(r?.hasMovementIntent){let e=a.screen.getCursorScreenPoint(),i=r.getCursorPointForSource({native:r.cursorSource===`native`?V2(this.compositionHost.getCursorPosition()):null,renderer:{x:t?.pointerScreenX??e.x,y:t?.pointerScreenY??e.y}});i!=null&&this.moveDragToPointer(n,i)}this.suppressNextRendererThrow=r?.shouldSuppressRendererThrow()??!1,this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0})}",
+    "moveDragToPointer(e,t){let n=this.dragState;if(n==null)return;let r=J2(t,n.displayBounds),i=a.screen.getDisplayMatching(r);n.recordMove(i.bounds),this.anchor={...this.anchor,x:t.x-n.pointerAnchorX,y:t.y-n.pointerAnchorY},this.applyLayout(e,i,!1,!1)}",
+    "setElementSize(e,{elementSizeRevision:t,isTrayVisible:n,mascot:r,tray:i}){let a=this.window;if(!(a==null||a.isDestroyed()||a.webContents.id!==e)){if(this.cancelMomentum(),this.pendingElementSizeRevision=t??null,this.layoutMode=n==null?`native`:`legacy`,this.initialPresentationState===`waiting-for-layout`&&(this.initialPresentationState=this.layoutMode===`native`?`waiting-for-native`:`ready`),this.mascotResizeState!=null){this.traySize=i;return}if(this.ignoreMascotElementSizeUntilMs=0,this.mascotSize=r,this.traySize=i,this.movedWindowPersistTimer!=null){this.hasDeferredLayout=!0;return}this.applyLatestElementSizes(a),this.stageWindowForNativePresentation(a),this.showWindowIfReady(a)}}",
+    "applyLatestElementSizes(e){this.anchor={...this.anchor,width:this.mascotSize.width,height:this.mascotSize.height};let t=this.pendingElementSizeRevision;this.pendingElementSizeRevision=null,this.applyLayout(e,this.getCurrentDisplay(),!1,!0,t)}",
+    "async createWindow(){let e=await this.windowManager.createWindow({title:a.app.getName(),width:p0.width,height:p0.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:x2});return this.window=e,this.compositionHost.setOverlayWindow(e),this.rendererReady=this.windowManager.isWebContentsReady(e.webContents.id),this.clearDetachedDisplayRestore(),this.displayBounds=null,this.displayId=null,this.dragState=null,this.hasDeferredLayout=!1,this.layout=null,this.layoutMode=`legacy`,this.initialPresentationState=`waiting-for-layout`,this.windowStagedForNativePresentation=!1,this.mascotSize=w2,this.mascotResizeState=null,this.ignoreMascotElementSizeUntilMs=0,this.expectedMascotSizeAfterResize=null,this.isSuspended=!1,this.mousePassthroughEnabled=!1,this.placement=`top-end`,this.pointerInteractive=!1,this.resolutionKey=null,this.traySize=null,e.setAlwaysOnTop(!0,`floating`),e.once(`ready-to-show`,()=>{this.showWindowIfReady(e)}),e.on(`closed`,()=>{this.window===e&&(this.cancelMomentum(),this.clearMovedWindowPersist(),this.nativePositionController.clear(),this.window=null,this.removeDisplayChangeListeners(),this.removePowerMonitorListeners(),this.displayBounds=null,this.displayId=null,this.dragState=null,this.clearDetachedDisplayRestore(),this.hasDeferredLayout=!1,this.layout=null,this.mascotResizeState=null,this.ignoreMascotElementSizeUntilMs=0,this.expectedMascotSizeAfterResize=null,this.isSuspended=!1,this.finishPendingPresentation(),this.rendererReady=!1,this.windowStagedForNativePresentation=!1,this.pointerInteractive=!1,this.mousePassthroughEnabled=!1,this.compositionHost.setOverlayWindow(null),this.broadcastOpenState())}),e}",
+    "applyLayout(e,t=this.getCurrentDisplay(),n=!1,r=!0,i=null){if(e.isDestroyed())return;let a=t.bounds;this.displayId=t.id,this.resolutionKey=H2(a),this.displayBounds=a;let o=b0({anchor:this.anchor,displayBounds:this.layoutMode===`native`?t.workArea:t.bounds,mode:this.layoutMode,mascotSize:this.mascotSize,nativeMaterialAttached:this.compositionHost.isNativeMaterialAttached(),previousPlacement:this.placement,traySize:this.traySize??(this.layoutMode===`native`?k2:O2)});this.anchor=o.anchor,this.layout=o,this.placement=o.placement,this.setWindowBounds(e,o.windowBounds,n,r),this.sendLayoutToRenderer(e,i)}getLayout(e){if(this.layout??this.applyLayout(e),this.layout==null)throw Error(`Expected avatar overlay layout`);return this.layout}",
+    "showWindow(e){if(e.isDestroyed())return;let t=this.isOpen();this.windowStagedForNativePresentation&&=(e.setOpacity(1),!1),e.moveTop(),e.showInactive(),!t&&this.isOpen()&&(this.finishPendingPresentation(),this.broadcastOpenState())}showWindowIfReady(e){!this.rendererReady||this.initialPresentationState!==`ready`||(this.showWindow(e),this.applyPointerInteractivityPolicy())}stageWindowForNativePresentation(e){e.isDestroyed()||!this.rendererReady||this.initialPresentationState!==`waiting-for-native`||this.windowStagedForNativePresentation||(this.windowStagedForNativePresentation=!0,e.setOpacity(0),e.moveTop(),e.showInactive(),this.applyPointerInteractivityPolicy())}broadcastOpenState(){this.windowManager.sendMessageToAllRegisteredWindows({type:`avatar-overlay-open-state-changed`,isOpen:this.isOpen()})}",
+    "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}refreshCursorAtCurrentMousePosition(e){let t=a.screen.getCursorScreenPoint()}",
+    "};",
+  ].join("");
+}
+
 test("adds Linux file manager support without relying on exact minified variable names", () => {
   const source = `${mainBundlePrefix}${fileManagerBundle}`;
 
@@ -2074,6 +2095,23 @@ test("keeps avatar overlay interactivity working after native presentation drift
   assert.match(patched, /this\.cancelMomentum\(\),this\.clearMovedWindowPersist\(\),this\.window=null/);
   assert.doesNotMatch(patched, /let r=r\.screen\.getCursorScreenPoint\(\)/);
   assert.match(patched, /let __codexCursor=r\.screen\.getCursorScreenPoint\(\),__codexBounds=e\.getContentBounds\(\),__codexX=__codexCursor\.x-__codexBounds\.x,__codexY=__codexCursor\.y-__codexBounds\.y/);
+});
+
+test("keeps avatar overlay interactivity working after native pointer source drift", () => {
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(
+      applyLinuxAvatarOverlayMousePassthroughPatch,
+      nativePointerAvatarOverlayBundleFixture(),
+    ),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(patched, /let codexLinuxMascotDragRegion=process\.platform===`linux`&&typeof this\.codexLinuxMascotInputRegion==`function`\?this\.codexLinuxMascotInputRegion\(r\):r\.mascot/);
+  assert.match(patched, /c=t\.pointerWindowX-codexLinuxMascotDragRegion\.left,l=t\.pointerWindowY-codexLinuxMascotDragRegion\.top/);
+  assert.match(patched, /this\.dragState=new h2\(i==null\?`renderer`:`native`,c,l,a\.screen\.getDisplayNearestPoint\(s\)\.bounds\);process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)/);
+  assert.match(patched, /this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
+  assert.match(patched, /this\.setWindowBounds\(e,o\.windowBounds,n,r\),this\.sendLayoutToRenderer\(e,i\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
+  assert.match(patched, /this\.windowStagedForNativePresentation&&=\(e\.setOpacity\(1\),!1\),process\.platform===`linux`&&e\.setAlwaysOnTop\(!0,`screen-saver`\),e\.moveTop\(\),process\.platform===`linux`\?e\.show\(\):e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\),!t&&this\.isOpen\(\)&&\(this\.finishPendingPresentation\(\),this\.broadcastOpenState\(\)\)/);
 });
 
 test("adds Linux window icon handling when an icon asset is available", () => {

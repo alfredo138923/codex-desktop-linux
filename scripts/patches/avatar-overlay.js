@@ -25,6 +25,35 @@ function findAvatarMethod(source, signatureRegex) {
   };
 }
 
+function findAvatarClassMethod(source, methodName) {
+  const needle = `${methodName}(`;
+  let index = -1;
+  while ((index = source.indexOf(needle, index + 1)) !== -1) {
+    const previous = index > 0 ? source[index - 1] : "";
+    if (index > 0 && !/[;{}]/.test(previous)) {
+      continue;
+    }
+    const openIndex = source.indexOf("{", index + needle.length);
+    if (openIndex === -1) {
+      return null;
+    }
+    const signature = source.slice(index, openIndex);
+    if (/;/.test(signature)) {
+      continue;
+    }
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex === -1) {
+      return null;
+    }
+    return {
+      start: index,
+      end: closeIndex + 1,
+      text: source.slice(index, closeIndex + 1),
+    };
+  }
+  return null;
+}
+
 function replaceAvatarMethod(source, signatureRegex, replacement) {
   const method = findAvatarMethod(source, signatureRegex);
   if (method == null || method.text === replacement) {
@@ -64,6 +93,113 @@ function patchAvatarOverlayWindowOptions(source) {
       "appearance:`avatarOverlay`,focusable:!1",
       windowOptionsPatch,
     );
+}
+
+function replaceAvatarClassMethod(source, method, replacement) {
+  if (method == null || method.text === replacement) {
+    return source;
+  }
+  return source.slice(0, method.start) + replacement + source.slice(method.end);
+}
+
+function patchAvatarStartDragMethod(source) {
+  const method = findAvatarClassMethod(source, "startDrag");
+  if (method == null) {
+    return null;
+  }
+  const pointerPolicy =
+    "process.platform===`linux`&&(this.pointerInteractive=!0,this.applyPointerInteractivityPolicy())";
+  let patchedMethod = method.text;
+  const layoutMatch = patchedMethod.match(/let ([A-Za-z_$][\w$]*)=this\.getLayout\([A-Za-z_$][\w$]*\);/);
+  if (
+    patchedMethod.includes(pointerPolicy) &&
+    (layoutMatch == null || patchedMethod.includes("codexLinuxMascotDragRegion"))
+  ) {
+    return source;
+  }
+  if (layoutMatch != null && !patchedMethod.includes("codexLinuxMascotDragRegion")) {
+    const layoutVar = layoutMatch[1];
+    const mascotRegion =
+      `let codexLinuxMascotDragRegion=process.platform===\`linux\`&&typeof this.codexLinuxMascotInputRegion==\`function\`?this.codexLinuxMascotInputRegion(${layoutVar}):${layoutVar}.mascot;`;
+    patchedMethod = patchedMethod.replace(layoutMatch[0], `${layoutMatch[0]}${mascotRegion}`);
+    patchedMethod = patchedMethod
+      .replace(
+        new RegExp(`([A-Za-z_$][\\w$]*)\\.pointerWindowX-${escapeRegExp(layoutVar)}\\.mascot\\.left`, "g"),
+        "$1.pointerWindowX-codexLinuxMascotDragRegion.left",
+      )
+      .replace(
+        new RegExp(`([A-Za-z_$][\\w$]*)\\.pointerWindowY-${escapeRegExp(layoutVar)}\\.mascot\\.top`, "g"),
+        "$1.pointerWindowY-codexLinuxMascotDragRegion.top",
+      );
+  }
+  if (!patchedMethod.includes(pointerPolicy)) {
+    patchedMethod = patchedMethod.replace(/\}$/, `;${pointerPolicy}}`);
+  }
+  if (patchedMethod === method.text) {
+    return null;
+  }
+  return replaceAvatarClassMethod(source, method, patchedMethod);
+}
+
+function patchAvatarEndDragMethod(source) {
+  const method = findAvatarClassMethod(source, "endDrag");
+  if (method == null) {
+    return null;
+  }
+  const pointerPolicy = "process.platform===`linux`&&this.applyPointerInteractivityPolicy()";
+  if (method.text.includes(pointerPolicy)) {
+    return source;
+  }
+  const patchedMethod = method.text.replace(
+    /this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\)/,
+    `this.reclampWindowToVisibleDisplay({shouldPersist:!0}),${pointerPolicy}`,
+  );
+  if (patchedMethod === method.text) {
+    return null;
+  }
+  return replaceAvatarClassMethod(source, method, patchedMethod);
+}
+
+function patchAvatarApplyLayoutMethod(source) {
+  const method = findAvatarClassMethod(source, "applyLayout");
+  if (method == null) {
+    return null;
+  }
+  const pointerPolicy = "process.platform===`linux`&&this.applyPointerInteractivityPolicy()";
+  if (method.text.includes(pointerPolicy)) {
+    return source;
+  }
+  const patchedMethod = method.text.replace(
+    /this\.setWindowBounds\(([^{};]+)\),this\.sendLayoutToRenderer\(([^{};]+)\)/,
+    `this.setWindowBounds($1),this.sendLayoutToRenderer($2),${pointerPolicy}`,
+  );
+  if (patchedMethod === method.text) {
+    return null;
+  }
+  return replaceAvatarClassMethod(source, method, patchedMethod);
+}
+
+function patchAvatarShowWindowMethod(source) {
+  const method = findAvatarClassMethod(source, "showWindow");
+  if (method == null) {
+    return null;
+  }
+  if (method.text.includes("codexLinuxApplyAvatarCompositorHints")) {
+    return source;
+  }
+  const signatureMatch = method.text.match(/showWindow\(([A-Za-z_$][\w$]*)\)\{/);
+  if (signatureMatch == null) {
+    return null;
+  }
+  const windowVar = signatureMatch[1];
+  const patchedMethod = method.text.replace(
+    new RegExp(`${escapeRegExp(windowVar)}\\.moveTop\\(\\),${escapeRegExp(windowVar)}\\.showInactive\\(\\),`),
+    `process.platform===\`linux\`&&${windowVar}.setAlwaysOnTop(!0,\`screen-saver\`),${windowVar}.moveTop(),process.platform===\`linux\`?${windowVar}.show():${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`,
+  );
+  if (patchedMethod === method.text) {
+    return null;
+  }
+  return replaceAvatarClassMethod(source, method, patchedMethod);
 }
 
 function upgradeAvatarOverlayInjectedMethods(source, electronVar) {
@@ -290,14 +426,20 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
   } else if (startDragRegex.test(patchedSource)) {
     recordStrategy("avatar-start-drag", "upstream-regex");
     patchedSource = patchedSource.replace(startDragRegex, startDragPatch);
-  } else if (
-    patchedSource.includes("avatar-overlay") &&
-    !patchedSource.includes(startDragPatch)
-  ) {
-    recordStrategy("avatar-start-drag", "none");
-    console.warn(
-      "WARN: Could not find avatar overlay drag start — skipping Linux avatar overlay drag interactivity patch",
-    );
+  } else {
+    const methodPatchedSource = patchAvatarStartDragMethod(patchedSource);
+    if (methodPatchedSource != null) {
+      recordStrategy("avatar-start-drag", "upstream-method");
+      patchedSource = methodPatchedSource;
+    } else if (
+      patchedSource.includes("avatar-overlay") &&
+      !patchedSource.includes(startDragPatch)
+    ) {
+      recordStrategy("avatar-start-drag", "none");
+      console.warn(
+        "WARN: Could not find avatar overlay drag start — skipping Linux avatar overlay drag interactivity patch",
+      );
+    }
   }
 
   const endDragNeedle =
@@ -318,13 +460,19 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
     patchedSource = patchedSource.replace(endDragNeedle, endDragPatch);
   } else if (patchedSource.includes(endDragPatch)) {
     recordStrategy("avatar-end-drag", "already-applied");
-  } else if (
-    patchedSource.includes("avatar-overlay")
-  ) {
-    recordStrategy("avatar-end-drag", "none");
-    console.warn(
-      "WARN: Could not find avatar overlay drag end — skipping Linux avatar overlay drag cleanup patch",
-    );
+  } else {
+    const methodPatchedSource = patchAvatarEndDragMethod(patchedSource);
+    if (methodPatchedSource != null) {
+      recordStrategy("avatar-end-drag", "upstream-method");
+      patchedSource = methodPatchedSource;
+    } else if (
+      patchedSource.includes("avatar-overlay")
+    ) {
+      recordStrategy("avatar-end-drag", "none");
+      console.warn(
+        "WARN: Could not find avatar overlay drag end — skipping Linux avatar overlay drag cleanup patch",
+      );
+    }
   }
   const moveDragMethod = findAvatarMethod(
     patchedSource,
@@ -522,13 +670,19 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
       applyLayoutRegex,
       "this.setWindowBounds(e,$1.windowBounds$2),this.sendLayoutToRenderer(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy()}getLayout(e){",
     );
-  } else if (
-    patchedSource.includes("avatar-overlay")
-  ) {
-    recordStrategy("avatar-apply-layout", "none");
-    console.warn(
-      "WARN: Could not find avatar overlay layout application — skipping Linux avatar overlay layout sync patch",
-    );
+  } else {
+    const methodPatchedSource = patchAvatarApplyLayoutMethod(patchedSource);
+    if (methodPatchedSource != null) {
+      recordStrategy("avatar-apply-layout", "upstream-method");
+      patchedSource = methodPatchedSource;
+    } else if (
+      patchedSource.includes("avatar-overlay")
+    ) {
+      recordStrategy("avatar-apply-layout", "none");
+      console.warn(
+        "WARN: Could not find avatar overlay layout application — skipping Linux avatar overlay layout sync patch",
+      );
+    }
   }
 
   const showWindowNeedle =
@@ -577,11 +731,17 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
       currentShowWindowRegex,
       "process.platform===`linux`&&e.setAlwaysOnTop(!0,`screen-saver`),e.moveTop(),process.platform===`linux`?e.show():e.showInactive(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),$1",
     );
-  } else if (patchedSource.includes("avatar-overlay")) {
-    recordStrategy("avatar-show-window", "none");
-    console.warn(
-      "WARN: Could not find avatar overlay show window — skipping Linux avatar overlay show sync patch",
-    );
+  } else {
+    const methodPatchedSource = patchAvatarShowWindowMethod(patchedSource);
+    if (methodPatchedSource != null) {
+      recordStrategy("avatar-show-window", "upstream-method");
+      patchedSource = methodPatchedSource;
+    } else if (patchedSource.includes("avatar-overlay")) {
+      recordStrategy("avatar-show-window", "none");
+      console.warn(
+        "WARN: Could not find avatar overlay show window — skipping Linux avatar overlay show sync patch",
+      );
+    }
   }
 
   const createWindowMethod = findAvatarMethod(
