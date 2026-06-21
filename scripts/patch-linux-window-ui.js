@@ -64,6 +64,10 @@ const {
   applyLinuxTrayCloseSettingPatch,
 } = require("./patches/launch-actions.js");
 const {
+  applyLinuxProjectlessXdgDocumentsDirPatch,
+  patchProjectlessDocumentsAssets,
+} = require("./patches/projectless-documents.js");
+const {
   applyBrowserUseNodeReplApprovalPatch,
   applyLinuxAboutDialogPatch,
   applyLinuxBrowserUseRouteLivenessPatch,
@@ -78,6 +82,7 @@ const {
   applyLinuxNativeTitlebarPatch,
   applyLinuxLocalAppServerFeatureEnablementHandlerPatch,
   applyLinuxOpaqueBackgroundPatch,
+  applyLinuxOwlFeatureBindingFallbackPatch,
   applyLinuxQuitGuardPatch,
   applyLinuxReadyToShowWindowStatePatch,
   applyLinuxResizeRepaintPatch,
@@ -87,6 +92,8 @@ const {
   applyLinuxTrayPatch,
   applyLinuxWillQuitDrainTimeoutPatch,
   applyLinuxWindowOptionsPatch,
+  applyLinuxXdgDocumentsDirPatch,
+  patchLinuxOwlFeatureBindingFallbackAssets,
 } = require("./patches/main-process.js");
 const {
   applyLinuxAvatarOverlayMousePassthroughPatch,
@@ -234,8 +241,10 @@ module.exports = {
   applyLinuxMenuPatch,
   applyLinuxNativeTitlebarPatch,
   applyLinuxLocalAppServerFeatureEnablementHandlerPatch,
+  applyLinuxProjectlessXdgDocumentsDirPatch,
   applyLinuxMultiInstanceBootstrapPatch,
   applyLinuxOpaqueBackgroundPatch,
+  applyLinuxOwlFeatureBindingFallbackPatch,
   applyLinuxOpaqueWindowsDefaultPatch,
   applyLinuxFastModeModelGuardPatch,
   applyLinuxQuitGuardPatch,
@@ -249,6 +258,7 @@ module.exports = {
   applyLinuxTrayPatch,
   applyLinuxWillQuitDrainTimeoutPatch,
   applyLinuxWindowOptionsPatch,
+  applyLinuxXdgDocumentsDirPatch,
   applySubagentNicknameMetadataPatch,
   createPatchReport,
   corePatchDescriptors,
@@ -272,6 +282,8 @@ module.exports = {
   patchLinuxMultiInstanceBootstrap,
   patchLinuxAppUpdaterBridge,
   patchLinuxChromeNativeHostRuntimeAssets,
+  patchLinuxOwlFeatureBindingFallbackAssets,
+  patchProjectlessDocumentsAssets,
   patchMainBundleSource,
   patchPackageJson,
   resolveDesktopName,

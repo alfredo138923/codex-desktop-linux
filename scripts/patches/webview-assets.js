@@ -550,6 +550,19 @@ function applyLinuxChatSearchHydrationPatch(currentSource) {
     },
   );
   if (!patchedResultSelectCache) {
+    if (requestAlias != null) {
+      const currentRoutePattern =
+        /function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{switch\(\2\.kind\)\{case`local`:case`remote`:([A-Za-z_$][\w$]*)\(\2\.threadKey,\3,\4\);return;case`chatgpt`:return\}\}/u;
+      if (currentRoutePattern.test(patchedSource)) {
+        return patchedSource.replace(
+          currentRoutePattern,
+          (_match, routeFn, resultVar, localNavigateArg, routeNavigateArg, modeArg, navigateFn) => {
+            const helper = `function codexLinuxHydrateSearchConversation(e,t){try{if(e==null||typeof e!==\`object\`||e.kind!==\`local\`)return Promise.resolve();let n=e.hostId??\`local\`,r=${requestAlias}(\`load-recent-conversation-ids-for-host\`,{hostId:n,conversationIds:[t]}),i=new Promise(e=>globalThis.setTimeout(e,1500));return Promise.race([r,i]).catch(()=>{})}catch{return Promise.resolve()}}`;
+            return `${helper}async function ${routeFn}(${resultVar},${localNavigateArg},${routeNavigateArg},${modeArg}){switch(${resultVar}.kind){case\`local\`:await codexLinuxHydrateSearchConversation(${resultVar},${resultVar}.threadKey);${navigateFn}(${resultVar}.threadKey,${localNavigateArg},${routeNavigateArg});return;case\`remote\`:${navigateFn}(${resultVar}.threadKey,${localNavigateArg},${routeNavigateArg});return;case\`chatgpt\`:return}}`;
+          },
+        );
+      }
+    }
     console.warn(
       "WARN: Could not find chat search result selection cache — skipping Linux chat search hydration patch",
     );
@@ -775,18 +788,102 @@ function applyLinuxAppServerBackfillWaitPatch(currentSource) {
     /(?:^|[;,])\s*[A-Za-z_$][\w$]*=codexLinuxAppServerBackfillTimeoutMs\([A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*\)/;
   const shouldPatchParser = parserNeedle.test(currentSource) || parserPatchedRegex.test(currentSource);
   const shouldPatchTimeout = timeoutNeedle.test(currentSource) || timeoutPatchedRegex.test(currentSource);
+  const topLevelInsertionPointBefore = (source, index) => {
+    let depth = 0;
+    let state = "code";
+    let insertionPoint = 0;
+    for (let i = 0; i < index; i += 1) {
+      const char = source[i];
+      const next = source[i + 1];
+      if (state === "code") {
+        if (char === "/" && next === "/") {
+          state = "line-comment";
+          i += 1;
+        } else if (char === "/" && next === "*") {
+          state = "block-comment";
+          i += 1;
+        } else if (char === "\"" || char === "'") {
+          state = char;
+        } else if (char === "`") {
+          state = "template";
+        } else if (char === "{") {
+          depth += 1;
+        } else if (char === "}") {
+          depth = Math.max(0, depth - 1);
+        } else if (char === ";" && depth === 0) {
+          insertionPoint = i + 1;
+        }
+      } else if (state === "line-comment") {
+        if (char === "\n" || char === "\r") {
+          state = "code";
+        }
+      } else if (state === "block-comment") {
+        if (char === "*" && next === "/") {
+          state = "code";
+          i += 1;
+        }
+      } else if (state === "template") {
+        if (char === "\\") {
+          i += 1;
+        } else if (char === "`") {
+          state = "code";
+        }
+      } else if (char === "\\") {
+        i += 1;
+      } else if (char === state) {
+        state = "code";
+      }
+    }
+    return insertionPoint;
+  };
   let patchedSource = currentSource;
   let changed = false;
 
   if (!patchedSource.includes("function codexLinuxIsStateDbBackfillMessage(")) {
-    const helperAnchors = [
+    // Insert helpers at module top-level so they're visible to ALL scopes.
+    // The helpers must not land inside the Sentry error handler because
+    // createRequest() calls them from a different scope.
+    const currentTopLevelAnchors = [
+      "function fi(e,t){let n=hi(t.originalException);",
+    ];
+    const legacyAnchors = [
       "function za(e){let t=La.safeParse(e);return t.success?new Ba(t.data):e}",
       "function za(e){",
     ];
-    const helperAnchor = helperAnchors.find((anchor) => patchedSource.includes(anchor));
-    if (helperAnchor != null) {
-      patchedSource = patchedSource.replace(helperAnchor, `${helperSource}${helperAnchor}`);
-      changed = true;
+    let inserted = false;
+    for (const anchor of currentTopLevelAnchors) {
+      const anchorIndex = patchedSource.indexOf(anchor);
+      if (
+        anchorIndex !== -1 &&
+        patchedSource.indexOf(anchor, anchorIndex + anchor.length) === -1
+      ) {
+        patchedSource = patchedSource.replace(anchor, `${helperSource}${anchor}`);
+        changed = true;
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      const legacyAnchor = legacyAnchors.find((anchor) => patchedSource.includes(anchor));
+      if (legacyAnchor != null) {
+        patchedSource = patchedSource.replace(legacyAnchor, `${helperSource}${legacyAnchor}`);
+        changed = true;
+        inserted = true;
+      }
+    }
+    if (!inserted && shouldPatchTimeout) {
+      const timeoutMatch = patchedSource.match(timeoutNeedle);
+      const classIndex = timeoutMatch?.index == null
+        ? -1
+        : patchedSource.lastIndexOf("=class{", timeoutMatch.index);
+      if (classIndex !== -1) {
+        const statementStart = topLevelInsertionPointBefore(patchedSource, classIndex);
+        patchedSource =
+          patchedSource.slice(0, statementStart) +
+          helperSource +
+          patchedSource.slice(statementStart);
+        changed = true;
+      }
     }
   }
 
@@ -1208,6 +1305,10 @@ function applyBrowserAnnotationScreenshotPatch(currentSource) {
       "Ye=(Ge?M?.kind===`comment`?he:[]:Je==null?he:he.filter(e=>e.id!==Je.id)).flatMap";
     const currentCommentPreloadSelectedMarkersPatch =
       "Ye=(Ge?M?.kind===`comment`?We:[]:Je==null?he:he.filter(e=>e.id!==Je.id)).flatMap";
+    const electron42CommentPreloadMarkersNeedle =
+      "Ze=(qe?A?.kind===`comment`?ge:[]:Xe==null?ge:ge.filter(e=>e.id!==Xe.id)).flatMap";
+    const electron42CommentPreloadMarkersPatch =
+      "Ze=(qe?A?.kind===`comment`?Ke:[]:Xe==null?ge:ge.filter(e=>e.id!==Xe.id)).flatMap";
     if (patchedSource.includes(currentMarkersPatch)) {
       // Already patched.
     } else if (patchedSource.includes(currentSelectedMarkersPatch)) {
@@ -1217,6 +1318,8 @@ function applyBrowserAnnotationScreenshotPatch(currentSource) {
     } else if (patchedSource.includes(latestCommentPreloadMarkersPatch)) {
       // Already patched.
     } else if (patchedSource.includes(currentCommentPreloadSelectedMarkersPatch)) {
+      // Already patched.
+    } else if (patchedSource.includes(electron42CommentPreloadMarkersPatch)) {
       // Already patched.
     } else if (patchedSource.includes(currentMarkersNeedle)) {
       patchedSource = patchedSource.replace(currentMarkersNeedle, currentMarkersPatch);
@@ -1236,6 +1339,11 @@ function applyBrowserAnnotationScreenshotPatch(currentSource) {
       patchedSource = patchedSource.replace(
         currentCommentPreloadSelectedMarkersNeedle,
         currentCommentPreloadSelectedMarkersPatch,
+      );
+    } else if (patchedSource.includes(electron42CommentPreloadMarkersNeedle)) {
+      patchedSource = patchedSource.replace(
+        electron42CommentPreloadMarkersNeedle,
+        electron42CommentPreloadMarkersPatch,
       );
     } else {
       console.warn("WARN: Could not find browser annotation screenshot markers — skipping screenshot marker patch");

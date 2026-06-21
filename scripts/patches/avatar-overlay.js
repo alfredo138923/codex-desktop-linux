@@ -25,37 +25,77 @@ function findAvatarMethod(source, signatureRegex) {
   };
 }
 
-function findAvatarClassMethod(source, methodName) {
-  const needle = `${methodName}(`;
-  let index = -1;
-  while ((index = source.indexOf(needle, index + 1)) !== -1) {
-    const previous = index > 0 ? source[index - 1] : "";
-    if (index > 0 && !/[;{}]/.test(previous)) {
-      continue;
-    }
-    const openIndex = source.indexOf("{", index + needle.length);
-    if (openIndex === -1) {
-      return null;
-    }
-    const signature = source.slice(index, openIndex);
-    if (/;/.test(signature)) {
-      continue;
-    }
+function findAvatarMethodAfter(source, signatureRegex, startIndex, endIndex = source.length) {
+  const match = source.slice(startIndex, endIndex).match(signatureRegex);
+  if (match == null) {
+    return null;
+  }
+  const absoluteIndex = startIndex + match.index;
+  const openIndex = absoluteIndex + match[0].length - 1;
+  const closeIndex = findMatchingBrace(source, openIndex);
+  if (closeIndex === -1 || closeIndex + 1 > endIndex) {
+    return null;
+  }
+  return {
+    match,
+    start: absoluteIndex,
+    end: closeIndex + 1,
+    text: source.slice(absoluteIndex, closeIndex + 1),
+  };
+}
+
+function avatarOverlayRegionStart(source) {
+  const routeIndex = source.indexOf("`/avatar-overlay`");
+  if (routeIndex !== -1) {
+    return routeIndex;
+  }
+  const stateMessageIndex = source.indexOf("avatar-overlay-open-state-changed");
+  return stateMessageIndex === -1 ? 0 : stateMessageIndex;
+}
+
+function findAvatarOverlayClass(source) {
+  const classRegex = /class(?:\s+[A-Za-z_$][\w$]*)?(?:\s+extends\s+[A-Za-z_$][\w$.]*)?\{/g;
+  classRegex.lastIndex = avatarOverlayRegionStart(source);
+  let match;
+  while ((match = classRegex.exec(source)) != null) {
+    const openIndex = match.index + match[0].length - 1;
     const closeIndex = findMatchingBrace(source, openIndex);
     if (closeIndex === -1) {
       return null;
     }
-    return {
-      start: index,
-      end: closeIndex + 1,
-      text: source.slice(index, closeIndex + 1),
-    };
+    const text = source.slice(match.index, closeIndex + 1);
+    if (
+      text.includes("appearance:`avatarOverlay`") ||
+      text.includes("avatar-overlay-open-state-changed")
+    ) {
+      return {
+        start: match.index,
+        end: closeIndex + 1,
+        text,
+      };
+    }
+    classRegex.lastIndex = closeIndex + 1;
   }
   return null;
 }
 
+function findAvatarOverlayMethod(source, signatureRegex) {
+  const overlayClass = findAvatarOverlayClass(source);
+  if (overlayClass == null) {
+    return null;
+  }
+  return findAvatarMethodAfter(source, signatureRegex, overlayClass.start, overlayClass.end);
+}
+
 function replaceAvatarMethod(source, signatureRegex, replacement) {
   const method = findAvatarMethod(source, signatureRegex);
+  if (method == null || method.text === replacement) {
+    return source;
+  }
+  return source.slice(0, method.start) + replacement + source.slice(method.end);
+}
+
+function replaceAvatarMethodText(source, method, replacement) {
   if (method == null || method.text === replacement) {
     return source;
   }
@@ -95,15 +135,11 @@ function patchAvatarOverlayWindowOptions(source) {
     );
 }
 
-function replaceAvatarClassMethod(source, method, replacement) {
-  if (method == null || method.text === replacement) {
-    return source;
-  }
-  return source.slice(0, method.start) + replacement + source.slice(method.end);
-}
-
 function patchAvatarStartDragMethod(source) {
-  const method = findAvatarClassMethod(source, "startDrag");
+  const method = findAvatarOverlayMethod(
+    source,
+    /startDrag\([^)]*\)\{/,
+  );
   if (method == null) {
     return null;
   }
@@ -138,11 +174,14 @@ function patchAvatarStartDragMethod(source) {
   if (patchedMethod === method.text) {
     return null;
   }
-  return replaceAvatarClassMethod(source, method, patchedMethod);
+  return replaceAvatarMethodText(source, method, patchedMethod);
 }
 
 function patchAvatarEndDragMethod(source) {
-  const method = findAvatarClassMethod(source, "endDrag");
+  const method = findAvatarOverlayMethod(
+    source,
+    /endDrag\([A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)?\)\{/,
+  );
   if (method == null) {
     return null;
   }
@@ -157,11 +196,14 @@ function patchAvatarEndDragMethod(source) {
   if (patchedMethod === method.text) {
     return null;
   }
-  return replaceAvatarClassMethod(source, method, patchedMethod);
+  return replaceAvatarMethodText(source, method, patchedMethod);
 }
 
 function patchAvatarApplyLayoutMethod(source) {
-  const method = findAvatarClassMethod(source, "applyLayout");
+  const method = findAvatarOverlayMethod(
+    source,
+    /(?<![\w$.])applyLayout\([^{}]*\)\{/,
+  );
   if (method == null) {
     return null;
   }
@@ -176,30 +218,56 @@ function patchAvatarApplyLayoutMethod(source) {
   if (patchedMethod === method.text) {
     return null;
   }
-  return replaceAvatarClassMethod(source, method, patchedMethod);
+  return replaceAvatarMethodText(source, method, patchedMethod);
 }
 
 function patchAvatarShowWindowMethod(source) {
-  const method = findAvatarClassMethod(source, "showWindow");
+  const method = findAvatarOverlayMethod(
+    source,
+    /showWindow\(([A-Za-z_$][\w$]*)\)\{/,
+  );
   if (method == null) {
     return null;
-  }
-  if (method.text.includes("codexLinuxApplyAvatarCompositorHints")) {
-    return source;
   }
   const signatureMatch = method.text.match(/showWindow\(([A-Za-z_$][\w$]*)\)\{/);
   if (signatureMatch == null) {
     return null;
   }
   const windowVar = signatureMatch[1];
-  const patchedMethod = method.text.replace(
-    new RegExp(`${escapeRegExp(windowVar)}\\.moveTop\\(\\),${escapeRegExp(windowVar)}\\.showInactive\\(\\),`),
-    `process.platform===\`linux\`&&${windowVar}.setAlwaysOnTop(!0,\`screen-saver\`),${windowVar}.moveTop(),process.platform===\`linux\`?${windowVar}.show():${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`,
-  );
+  const patchedPrefix =
+    `process.platform===\`linux\`&&${windowVar}.setAlwaysOnTop(!0,\`screen-saver\`),${windowVar}.moveTop(),process.platform===\`linux\`?${windowVar}.show():${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`;
+  if (method.text.includes(patchedPrefix)) {
+    return source;
+  }
+  const currentPrefix =
+    `${windowVar}.moveTop(),${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`;
+  const legacyScreenSaverPrefix =
+    `process.platform===\`linux\`&&${windowVar}.setAlwaysOnTop(!0,\`screen-saver\`),${windowVar}.moveTop(),${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`;
+  const legacyCompositorPrefix =
+    `${windowVar}.moveTop(),process.platform===\`linux\`&&this.codexLinuxApplyAvatarCompositorHints(${windowVar}),${windowVar}.showInactive(),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`;
+  const legacySyncPrefix =
+    `${windowVar}.moveTop(),${windowVar}.showInactive(),process.platform===\`linux\`&&this.codexLinuxStartAvatarPassthroughRecovery(),this.codexLinuxSyncAvatarPointerInteractivity(${windowVar})&&this.applyPointerInteractivityPolicy(),`;
+  const legacyI3Prefix =
+    `${windowVar}.moveTop(),${windowVar}.showInactive(),process.platform===\`linux\`&&this.applyPointerInteractivityPolicy(),`;
+  const upstreamPrefix = `${windowVar}.moveTop(),${windowVar}.showInactive(),`;
+  let patchedMethod = method.text;
+  for (const candidate of [
+    legacyScreenSaverPrefix,
+    currentPrefix,
+    legacyCompositorPrefix,
+    legacySyncPrefix,
+    legacyI3Prefix,
+    upstreamPrefix,
+  ]) {
+    if (patchedMethod.includes(candidate)) {
+      patchedMethod = patchedMethod.replace(candidate, patchedPrefix);
+      break;
+    }
+  }
   if (patchedMethod === method.text) {
     return null;
   }
-  return replaceAvatarClassMethod(source, method, patchedMethod);
+  return replaceAvatarMethodText(source, method, patchedMethod);
 }
 
 function upgradeAvatarOverlayInjectedMethods(source, electronVar) {
@@ -393,88 +461,38 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
       : "upstream",
   );
 
-  const previousStartDragPatch =
-    "startDrag(e,{pointerWindowX:t,pointerWindowY:r}){let i=this.window;if(i==null||i.isDestroyed()||i.webContents.id!==e)return;this.pointerInteractive=!0,this.applyPointerInteractivityPolicy(),this.cancelMomentum();";
-  const originalStartDragPrefix =
-    "startDrag(e,{pointerWindowX:t,pointerWindowY:r}){let i=this.window;if(i==null||i.isDestroyed()||i.webContents.id!==e)return;this.cancelMomentum();";
-  const startDragNeedle =
-    "displayBounds:n.screen.getDisplayNearestPoint(n.screen.getCursorScreenPoint()).bounds}}moveDrag(e){";
-  const startDragPatch =
-    `displayBounds:${electronVar}.screen.getDisplayNearestPoint(${electronVar}.screen.getCursorScreenPoint()).bounds},process.platform===\`linux\`&&(this.pointerInteractive=!0,this.applyPointerInteractivityPolicy())}moveDrag(e){`;
-  const previousStartDragAfterStatePatch =
-    "displayBounds:n.screen.getDisplayNearestPoint(n.screen.getCursorScreenPoint()).bounds},this.pointerInteractive=!0,this.applyPointerInteractivityPolicy()}moveDrag(e){";
-  const startDragRegex =
-    /displayBounds:([A-Za-z_$][\w$]*)\.screen\.getDisplayNearestPoint\(\1\.screen\.getCursorScreenPoint\(\)\)\.bounds\}\}moveDrag\(e\)\{/;
-  const previousStartDragAfterStateRegex =
-    /displayBounds:([A-Za-z_$][\w$]*)\.screen\.getDisplayNearestPoint\(\1\.screen\.getCursorScreenPoint\(\)\)\.bounds\},this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\}moveDrag\(e\)\{/;
-  const currentStartDragPatchRegex =
-    /displayBounds:([A-Za-z_$][\w$]*)\.screen\.getDisplayNearestPoint\(\1\.screen\.getCursorScreenPoint\(\)\)\.bounds\},process\.platform===`linux`&&\(this\.pointerInteractive=!0,this\.applyPointerInteractivityPolicy\(\)\)\}moveDrag\([A-Za-z_$][\w$]*(?:,codexLinuxDragPoint)?\)\{/;
-  if (patchedSource.includes(previousStartDragPatch)) {
-    patchedSource = patchedSource.replace(previousStartDragPatch, originalStartDragPrefix);
-  }
-  if (currentStartDragPatchRegex.test(patchedSource)) {
-    recordStrategy("avatar-start-drag", "already-applied");
-  } else if (previousStartDragAfterStateRegex.test(patchedSource)) {
-    recordStrategy("avatar-start-drag", "legacy:after-state-regex");
-    patchedSource = patchedSource.replace(previousStartDragAfterStateRegex, startDragPatch);
-  } else if (patchedSource.includes(previousStartDragAfterStatePatch)) {
-    recordStrategy("avatar-start-drag", "legacy:after-state");
-    patchedSource = patchedSource.replace(previousStartDragAfterStatePatch, startDragPatch);
-  } else if (patchedSource.includes(startDragNeedle)) {
-    recordStrategy("avatar-start-drag", "upstream");
-    patchedSource = patchedSource.replace(startDragNeedle, startDragPatch);
-  } else if (startDragRegex.test(patchedSource)) {
-    recordStrategy("avatar-start-drag", "upstream-regex");
-    patchedSource = patchedSource.replace(startDragRegex, startDragPatch);
-  } else {
-    const methodPatchedSource = patchAvatarStartDragMethod(patchedSource);
-    if (methodPatchedSource != null) {
-      recordStrategy("avatar-start-drag", "upstream-method");
-      patchedSource = methodPatchedSource;
-    } else if (
-      patchedSource.includes("avatar-overlay") &&
-      !patchedSource.includes(startDragPatch)
-    ) {
-      recordStrategy("avatar-start-drag", "none");
-      console.warn(
-        "WARN: Could not find avatar overlay drag start — skipping Linux avatar overlay drag interactivity patch",
-      );
-    }
+  const startDragPatchedSource = patchAvatarStartDragMethod(patchedSource);
+  if (startDragPatchedSource != null) {
+    recordStrategy(
+      "avatar-start-drag",
+      startDragPatchedSource === patchedSource ? "already-applied" : "upstream-method",
+    );
+    patchedSource = startDragPatchedSource;
+  } else if (
+    patchedSource.includes("avatar-overlay") &&
+    !patchedSource.includes("process.platform===`linux`&&(this.pointerInteractive=!0,this.applyPointerInteractivityPolicy())")
+  ) {
+    recordStrategy("avatar-start-drag", "none");
+    console.warn(
+      "WARN: Could not find avatar overlay drag start — skipping Linux avatar overlay drag interactivity patch",
+    );
   }
 
-  const endDragNeedle =
-    "endDrag(e){let t=this.window;t==null||t.isDestroyed()||t.webContents.id!==e||(this.dragState?.hasMoved&&this.moveDragToCurrentCursor(t),this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0}))}";
-  const endDragPatch =
-    "endDrag(e){let t=this.window;t==null||t.isDestroyed()||t.webContents.id!==e||(this.dragState?.hasMoved&&this.moveDragToCurrentCursor(t),this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0}),process.platform===`linux`&&this.applyPointerInteractivityPolicy())}";
-  const previousEndDragPatch =
-    "endDrag(e){let t=this.window;t==null||t.isDestroyed()||t.webContents.id!==e||(this.dragState?.hasMoved&&this.moveDragToCurrentCursor(t),this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0}),this.codexLinuxSyncAvatarPointerInteractivity(t)&&this.applyPointerInteractivityPolicy())}";
-  const currentEndDragPatchRegex =
-    /endDrag\([^)]*\)\{[\s\S]*?this\.dragState\?\.hasMoved&&(?:process\.platform!==`linux`&&)?this\.moveDragToCurrentCursor\([^)]+\),this\.dragState=null,this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)\)\}/;
-  if (currentEndDragPatchRegex.test(patchedSource)) {
-    recordStrategy("avatar-end-drag", "already-applied");
-  } else if (patchedSource.includes(previousEndDragPatch)) {
-    recordStrategy("avatar-end-drag", "legacy:sync-passthrough");
-    patchedSource = patchedSource.replace(previousEndDragPatch, endDragPatch);
-  } else if (patchedSource.includes(endDragNeedle)) {
-    recordStrategy("avatar-end-drag", "upstream");
-    patchedSource = patchedSource.replace(endDragNeedle, endDragPatch);
-  } else if (patchedSource.includes(endDragPatch)) {
-    recordStrategy("avatar-end-drag", "already-applied");
-  } else {
-    const methodPatchedSource = patchAvatarEndDragMethod(patchedSource);
-    if (methodPatchedSource != null) {
-      recordStrategy("avatar-end-drag", "upstream-method");
-      patchedSource = methodPatchedSource;
-    } else if (
-      patchedSource.includes("avatar-overlay")
-    ) {
-      recordStrategy("avatar-end-drag", "none");
-      console.warn(
-        "WARN: Could not find avatar overlay drag end — skipping Linux avatar overlay drag cleanup patch",
-      );
-    }
+  const endDragPatchedSource = patchAvatarEndDragMethod(patchedSource);
+  if (endDragPatchedSource != null) {
+    recordStrategy(
+      "avatar-end-drag",
+      endDragPatchedSource === patchedSource ? "already-applied" : "upstream-method",
+    );
+    patchedSource = endDragPatchedSource;
+  } else if (patchedSource.includes("avatar-overlay")) {
+    recordStrategy("avatar-end-drag", "none");
+    console.warn(
+      "WARN: Could not find avatar overlay drag end — skipping Linux avatar overlay drag cleanup patch",
+    );
   }
-  const moveDragMethod = findAvatarMethod(
+
+  const moveDragMethod = findAvatarOverlayMethod(
     patchedSource,
     /moveDrag\([A-Za-z_$][\w$]*\)\{/,
   );
@@ -494,7 +512,7 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
         patchedSource.slice(moveDragMethod.end);
     }
   }
-  const moveDragToCurrentCursorMethod = findAvatarMethod(
+  const moveDragToCurrentCursorMethod = findAvatarOverlayMethod(
     patchedSource,
     /moveDragToCurrentCursor\([A-Za-z_$][\w$]*\)\{/,
   );
@@ -517,23 +535,23 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
         patchedSource.slice(moveDragToCurrentCursorMethod.end);
     }
   }
-  const endDragMethod = findAvatarMethod(
+  const endDragCursorMethod = findAvatarOverlayMethod(
     patchedSource,
-    /endDrag\([A-Za-z_$][\w$]*\)\{/,
+    /endDrag\([A-Za-z_$][\w$]*(?:,[A-Za-z_$][\w$]*)?\)\{/,
   );
   if (
-    endDragMethod != null &&
-    !endDragMethod.text.includes("process.platform!==`linux`&&this.moveDragToCurrentCursor")
+    endDragCursorMethod != null &&
+    !endDragCursorMethod.text.includes("process.platform!==`linux`&&this.moveDragToCurrentCursor")
   ) {
-    const patchedMethod = endDragMethod.text.replace(
+    const patchedMethod = endDragCursorMethod.text.replace(
       /this\.dragState\?\.hasMoved&&this\.moveDragToCurrentCursor\(([A-Za-z_$][\w$]*)\)/g,
       "this.dragState?.hasMoved&&process.platform!==`linux`&&this.moveDragToCurrentCursor($1)",
     );
-    if (patchedMethod !== endDragMethod.text) {
+    if (patchedMethod !== endDragCursorMethod.text) {
       patchedSource =
-        patchedSource.slice(0, endDragMethod.start) +
+        patchedSource.slice(0, endDragCursorMethod.start) +
         patchedMethod +
-        patchedSource.slice(endDragMethod.end);
+        patchedSource.slice(endDragCursorMethod.end);
     }
   }
   const dragMoveDispatcherNeedle =
@@ -552,7 +570,7 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
     patchedSource = patchedSource.replace(elementSizeDispatcherNeedle, elementSizeDispatcherPatch);
   }
 
-  const setElementSizeMethod = findAvatarMethod(
+  const setElementSizeMethod = findAvatarOverlayMethod(
     patchedSource,
     /setElementSize\([A-Za-z_$][\w$]*,\{(?:[^{}]*,)?mascot:[A-Za-z_$][\w$]*(?:,mascotShape:[A-Za-z_$][\w$]*)?,tray:[A-Za-z_$][\w$]*(?:,[^{}]*)?\}\)\{/,
   );
@@ -658,17 +676,26 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
     recordStrategy("avatar-i3-tray-fallback", "already-applied");
   }
 
-  const currentApplyLayoutPatchRegex =
-    /this\.setWindowBounds\(e,([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.sendLayoutToRenderer\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)\}getLayout\(e\)\{/;
-  const applyLayoutRegex =
-    /this\.setWindowBounds\(e,([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.sendLayoutToRenderer\(e\)\}getLayout\(e\)\{/;
-  if (currentApplyLayoutPatchRegex.test(patchedSource)) {
+  const applyLayoutMethod = findAvatarOverlayMethod(
+    patchedSource,
+    /(?<![\w$.])applyLayout\([^{}]*\)\{/,
+  );
+  if (applyLayoutMethod?.text.includes(
+    "this.applyPointerInteractivityPolicy()",
+  )) {
     recordStrategy("avatar-apply-layout", "already-applied");
-  } else if (applyLayoutRegex.test(patchedSource)) {
+  } else if (
+    applyLayoutMethod != null &&
+    /this\.setWindowBounds\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.sendLayoutToRenderer\(\1((?:,[A-Za-z_$][\w$]*)*)\)/.test(applyLayoutMethod.text)
+  ) {
     recordStrategy("avatar-apply-layout", "upstream");
-    patchedSource = patchedSource.replace(
-      applyLayoutRegex,
-      "this.setWindowBounds(e,$1.windowBounds$2),this.sendLayoutToRenderer(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy()}getLayout(e){",
+    patchedSource = replaceAvatarMethodText(
+      patchedSource,
+      applyLayoutMethod,
+      applyLayoutMethod.text.replace(
+        /this\.setWindowBounds\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.sendLayoutToRenderer\(\1((?:,[A-Za-z_$][\w$]*)*)\)/,
+        "this.setWindowBounds($1,$2.windowBounds$3),this.sendLayoutToRenderer($1$4),process.platform===`linux`&&this.applyPointerInteractivityPolicy()",
+      ),
     );
   } else {
     const methodPatchedSource = patchAvatarApplyLayoutMethod(patchedSource);
@@ -685,66 +712,21 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
     }
   }
 
-  const showWindowNeedle =
-    "e.moveTop(),e.showInactive(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const showWindowPatch =
-    "process.platform===`linux`&&e.setAlwaysOnTop(!0,`screen-saver`),e.moveTop(),process.platform===`linux`?e.show():e.showInactive(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const previousShowWindowScreenSaverPatch =
-    "process.platform===`linux`&&e.setAlwaysOnTop(!0,`screen-saver`),e.moveTop(),e.showInactive(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const previousShowWindowLinuxPolicyPatch =
-    "e.moveTop(),e.showInactive(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const previousShowWindowCompositorPatch =
-    "e.moveTop(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),e.showInactive(),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const previousShowWindowI3Patch =
-    "e.moveTop(),e.showInactive(),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const previousShowWindowPatch =
-    "e.moveTop(),e.showInactive(),process.platform===`linux`&&this.codexLinuxStartAvatarPassthroughRecovery(),this.codexLinuxSyncAvatarPointerInteractivity(e)&&this.applyPointerInteractivityPolicy(),!t&&this.isOpen()&&this.broadcastOpenState()}broadcastOpenState(){";
-  const currentShowWindowRegex =
-    /e\.moveTop\(\),e\.showInactive\(\),(![A-Za-z_$][\w$]*&&this\.isOpen\(\)&&this\.broadcastOpenState\(\)\}showWindowIfReady\([A-Za-z_$][\w$]*\)\{)/;
-  const currentShowWindowPatchRegex =
-    /showWindow\([A-Za-z_$][\w$]*\)\{[^}]*process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\([A-Za-z_$][\w$]*\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\),![A-Za-z_$][\w$]*&&this\.isOpen\(\)&&this\.broadcastOpenState\(\)\}showWindowIfReady\([A-Za-z_$][\w$]*\)\{/;
-  if (patchedSource.includes(showWindowPatch)) {
-    recordStrategy("avatar-show-window", "already-applied");
-  } else if (patchedSource.includes(previousShowWindowScreenSaverPatch)) {
-    recordStrategy("avatar-show-window", "legacy:screen-saver-show-inactive");
-    patchedSource = patchedSource.replace(previousShowWindowScreenSaverPatch, showWindowPatch);
-  } else if (patchedSource.includes(previousShowWindowLinuxPolicyPatch)) {
-    recordStrategy("avatar-show-window", "legacy:linux-policy");
-    patchedSource = patchedSource.replace(previousShowWindowLinuxPolicyPatch, showWindowPatch);
-  } else if (patchedSource.includes(previousShowWindowCompositorPatch)) {
-    recordStrategy("avatar-show-window", "legacy:compositor");
-    patchedSource = patchedSource.replace(previousShowWindowCompositorPatch, showWindowPatch);
-  } else if (patchedSource.includes(previousShowWindowPatch)) {
-    recordStrategy("avatar-show-window", "legacy:sync-passthrough");
-    patchedSource = patchedSource.replace(previousShowWindowPatch, showWindowPatch);
-  } else if (patchedSource.includes(previousShowWindowI3Patch)) {
-    recordStrategy("avatar-show-window", "legacy:i3");
-    patchedSource = patchedSource.replace(previousShowWindowI3Patch, showWindowPatch);
-  } else if (patchedSource.includes(showWindowNeedle)) {
-    recordStrategy("avatar-show-window", "upstream");
-    patchedSource = patchedSource.replace(showWindowNeedle, showWindowPatch);
-  } else if (currentShowWindowPatchRegex.test(patchedSource)) {
-    recordStrategy("avatar-show-window", "already-applied");
-  } else if (currentShowWindowRegex.test(patchedSource)) {
-    recordStrategy("avatar-show-window", "upstream-regex");
-    patchedSource = patchedSource.replace(
-      currentShowWindowRegex,
-      "process.platform===`linux`&&e.setAlwaysOnTop(!0,`screen-saver`),e.moveTop(),process.platform===`linux`?e.show():e.showInactive(),process.platform===`linux`&&this.codexLinuxApplyAvatarCompositorHints(e),process.platform===`linux`&&this.applyPointerInteractivityPolicy(),$1",
+  const showWindowPatchedSource = patchAvatarShowWindowMethod(patchedSource);
+  if (showWindowPatchedSource != null) {
+    recordStrategy(
+      "avatar-show-window",
+      showWindowPatchedSource === patchedSource ? "already-applied" : "upstream-method",
     );
-  } else {
-    const methodPatchedSource = patchAvatarShowWindowMethod(patchedSource);
-    if (methodPatchedSource != null) {
-      recordStrategy("avatar-show-window", "upstream-method");
-      patchedSource = methodPatchedSource;
-    } else if (patchedSource.includes("avatar-overlay")) {
-      recordStrategy("avatar-show-window", "none");
-      console.warn(
-        "WARN: Could not find avatar overlay show window — skipping Linux avatar overlay show sync patch",
-      );
-    }
+    patchedSource = showWindowPatchedSource;
+  } else if (patchedSource.includes("avatar-overlay")) {
+    recordStrategy("avatar-show-window", "none");
+    console.warn(
+      "WARN: Could not find avatar overlay show window — skipping Linux avatar overlay show sync patch",
+    );
   }
 
-  const createWindowMethod = findAvatarMethod(
+  const createWindowMethod = findAvatarOverlayMethod(
     patchedSource,
     /async createWindow\([^)]*\)\{/,
   );

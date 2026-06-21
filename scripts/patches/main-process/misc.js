@@ -1,5 +1,8 @@
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
+
 const {
   findCallBlock,
   requireName,
@@ -80,6 +83,71 @@ function applyLinuxGitOriginsSourceFallbackPatch(currentSource) {
   return currentSource;
 }
 
+function applyLinuxOwlFeatureBindingFallbackPatch(currentSource) {
+  if (!currentSource.includes("electron_common_owl_features")) {
+    return currentSource;
+  }
+
+  const alreadyPatchedRegex =
+    /function [A-Za-z_$][\w$]*\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \1!=`function`\)return \{isOwlFeatureEnabled:\(\)=>!1\};try\{return [A-Za-z_$][\w$]*\.parse\(\1\.call\(process,`electron_common_owl_features`\)\)\}catch\(([A-Za-z_$][\w$]*)\)\{if\(String\(\2\?\.message\?\?\2\)\.includes\(`No such binding was linked`\)\)return \{isOwlFeatureEnabled:\(\)=>!1\};throw \2\}\}/u;
+  if (alreadyPatchedRegex.test(currentSource)) {
+    return currentSource;
+  }
+
+  const loaderRegex =
+    /function ([A-Za-z_$][\w$]*)\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \2!=`function`\)throw Error\(`Owl feature binding is unavailable`\);return ([A-Za-z_$][\w$]*)\.parse\(\2\.call\(process,`electron_common_owl_features`\)\)\}/u;
+  const match = currentSource.match(loaderRegex);
+  if (match == null) {
+    console.warn(
+      "WARN: Could not find Owl feature binding loader - skipping Linux Owl feature fallback patch",
+    );
+    return currentSource;
+  }
+
+  const [, fnName, linkedBindingVar, schemaVar] = match;
+  const fallback = "{isOwlFeatureEnabled:()=>!1}";
+  return currentSource.replace(
+    loaderRegex,
+    `function ${fnName}(){let ${linkedBindingVar}=process._linkedBinding;if(typeof ${linkedBindingVar}!=\`function\`)return ${fallback};try{return ${schemaVar}.parse(${linkedBindingVar}.call(process,\`electron_common_owl_features\`))}catch(t){if(String(t?.message??t).includes(\`No such binding was linked\`))return ${fallback};throw t}}`,
+  );
+}
+
+function patchLinuxOwlFeatureBindingFallbackAssets(extractedDir) {
+  const buildDir = path.join(extractedDir, ".vite", "build");
+  if (!fs.existsSync(buildDir)) {
+    return { matched: 0, changed: 0 };
+  }
+
+  const candidates = fs
+    .readdirSync(buildDir)
+    .filter((name) => name.endsWith(".js"))
+    .sort()
+    .map((name) => path.join(buildDir, name))
+    .filter((candidate) => {
+      try {
+        return fs.readFileSync(candidate, "utf8").includes("electron_common_owl_features");
+      } catch {
+        return false;
+      }
+    });
+
+  let changed = 0;
+  const pendingWrites = [];
+  for (const candidate of candidates) {
+    const currentSource = fs.readFileSync(candidate, "utf8");
+    const patchedSource = applyLinuxOwlFeatureBindingFallbackPatch(currentSource);
+    if (patchedSource !== currentSource) {
+      changed += 1;
+      pendingWrites.push({ filePath: candidate, patchedSource });
+    }
+  }
+  for (const { filePath, patchedSource } of pendingWrites) {
+    fs.writeFileSync(filePath, patchedSource, "utf8");
+  }
+
+  return { matched: candidates.length, changed };
+}
+
 function applyLinuxRemoteControlConfigPreservationPatch(currentSource) {
   const removedLog = "Removed remote_control from config before app-server start";
   const failedLog = "Failed to remove remote_control before app-server start";
@@ -109,6 +177,56 @@ function applyLinuxRemoteControlConfigPreservationPatch(currentSource) {
     "WARN: Could not find remote-control config stripper guard — skipping Linux remote-control config preservation patch",
   );
   return currentSource;
+}
+
+function applyLinuxXdgDocumentsDirPatch(currentSource) {
+  if (currentSource.includes("codexLinuxXdgDocumentsDir")) {
+    return currentSource;
+  }
+
+  const fsVar = requireName(currentSource, "node:fs");
+  if (fsVar == null) {
+    console.warn("WARN: Could not find fs require — skipping Linux XDG documents dir patch");
+    return currentSource;
+  }
+
+  const documentsDirRegex =
+    /function ([A-Za-z_$][\w$]*)\(\{desktopPaths:([A-Za-z_$][\w$]*),homeDir:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)\{return ([A-Za-z_$][\w$]*)\(\3,\2\.getPath\(`home`\),\4\)\?\2\.getPath\(`documents`\):([A-Za-z_$][\w$]*)\(\4\)\.join\(\3,`Documents`\)\}/u;
+  const match = currentSource.match(documentsDirRegex);
+  if (match == null) {
+    if (
+      currentSource.includes("getPath(`documents`)") &&
+      currentSource.includes(".join(") &&
+      currentSource.includes("`Documents`")
+    ) {
+      console.warn(
+        "WARN: Could not find documents directory resolver — skipping Linux XDG documents dir patch",
+      );
+    }
+    return currentSource;
+  }
+
+  const [, fnName, desktopPathsVar, homeDirVar, platformVar, sameHomeFn, pathFactoryFn] = match;
+  const helper = [
+    "function codexLinuxXdgDocumentsDir({fs:e,homeDir:t,path:n}){try{",
+    "let r=process.env.XDG_CONFIG_HOME?.trim(),i=r&&n.isAbsolute(r)?n.join(r,`user-dirs.dirs`):n.join(t,`.config`,`user-dirs.dirs`);",
+    "if(!e.existsSync(i))return null;",
+    "let a=e.readFileSync(i,`utf8`).match(/^XDG_DOCUMENTS_DIR=([\"'])(.*)\\1/m);",
+    "if(a==null)return null;",
+    "let o=a[2].replace(/\\\\(.)/g,`$1`);",
+    "if(o===`$HOME`)return t;",
+    "if(o.startsWith(`$HOME/`))return n.join(t,o.slice(6));",
+    "if(o.startsWith(`~/`))return n.join(t,o.slice(2));",
+    "return n.isAbsolute(o)?o:n.join(t,o)",
+    "}catch{return null}}",
+  ].join("");
+  const patchedFn =
+    `${helper}function ${fnName}({desktopPaths:${desktopPathsVar},homeDir:${homeDirVar},platform:${platformVar}}){` +
+    `if(${platformVar}===\`linux\`){let __codexLinuxDocumentsDir=codexLinuxXdgDocumentsDir({fs:${fsVar},homeDir:${homeDirVar},path:${pathFactoryFn}(${platformVar})});` +
+    "if(__codexLinuxDocumentsDir!=null)return __codexLinuxDocumentsDir}" +
+    `return ${sameHomeFn}(${homeDirVar},${desktopPathsVar}.getPath(\`home\`),${platformVar})?${desktopPathsVar}.getPath(\`documents\`):${pathFactoryFn}(${platformVar}).join(${homeDirVar},\`Documents\`)}`;
+
+  return currentSource.replace(documentsDirRegex, () => patchedFn);
 }
 
 function applyLinuxLocalAppServerFeatureEnablementHandlerPatch(currentSource) {
@@ -167,5 +285,8 @@ module.exports = {
   applyLinuxFileManagerPatch,
   applyLinuxGitOriginsSourceFallbackPatch,
   applyLinuxLocalAppServerFeatureEnablementHandlerPatch,
+  applyLinuxOwlFeatureBindingFallbackPatch,
+  patchLinuxOwlFeatureBindingFallbackAssets,
   applyLinuxRemoteControlConfigPreservationPatch,
+  applyLinuxXdgDocumentsDirPatch,
 };
