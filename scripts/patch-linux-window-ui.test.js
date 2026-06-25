@@ -59,6 +59,7 @@ const {
   applyLinuxProjectlessXdgDocumentsDirPatch,
   applyLinuxBrowserUseNonLocalNavigationPatch,
   applyLinuxAppServerBackfillWaitPatch,
+  applyLinuxDynamicToolsThreadStartFallbackPatch,
   applyLinuxOpaqueBackgroundPatch,
   applyLinuxOwlFeatureBindingFallbackPatch,
   applyLinuxFastModeModelGuardPatch,
@@ -723,6 +724,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-app-sunset-gate",
     "linux-app-server-feature-enablement",
     "linux-app-server-backfill-wait",
+    "linux-dynamic-tools-thread-start-fallback",
     "linux-config-write-version-conflict",
     "opaque-window-default-general-settings",
     "opaque-window-default-webview-index",
@@ -3959,6 +3961,97 @@ test("skips app-server timeout rewrite when the helper insertion anchor drifts",
   assert.equal(patched, source);
   assert.match(warnings.join("\n"), /Could not insert app-server backfill wait helper/);
   assert.doesNotMatch(patched, /codexLinuxAppServerBackfillTimeoutMs\(/);
+});
+
+function dynamicToolsThreadStartFixture() {
+  return [
+    "var Ae=3e4;var md=5e3,hd=class{",
+    "dynamicToolsForThreadStartRequests=new Map;",
+    "constructor(){this.params={requestClient:null}}",
+    "async startThread({workspaceRoots:r,browserEnvironments:i,threadStartKind:m=`default`}){",
+    "let g={dynamicTools:[{type:`namespace`,name:`codex_app`,description:`Tools`,tools:[{type:`function`,name:`broken`,description:`Broken`}]}],serviceTier:`auto`};",
+    "return i!=null&&(g.environments=i,i.length>0&&(g.cwd=i[0].cwd)),this.params.requestClient.sendRequest(`thread/start`,{...g,...m===`conversational_onboarding`?{runtimeWorkspaceRoots:r}:{}},{timeoutMs:Ae})",
+    "}};",
+  ].join("");
+}
+
+test("retries thread start without dynamic tools when app-server rejects missing inputSchema", async () => {
+  const patched = applyPatchTwice(
+    applyLinuxDynamicToolsThreadStartFallbackPatch,
+    dynamicToolsThreadStartFixture(),
+  );
+
+  assert.match(patched, /function codexLinuxIsDynamicToolInputSchemaError\(e\)/);
+  assert.match(patched, /delete codexLinuxThreadStartParams\.dynamicTools/);
+
+  const context = { calls: [] };
+  vm.runInNewContext(`${patched};ThreadManager=hd;`, context);
+  const manager = new context.ThreadManager();
+  manager.params.requestClient = {
+    sendRequest: async (method, params, options) => {
+      context.calls.push({ method, params, options });
+      if (params.dynamicTools != null) {
+        throw new Error("Invalid request: missing field `inputSchema`");
+      }
+      return { ok: true, params };
+    },
+  };
+
+  const result = await manager.startThread({
+    workspaceRoots: ["/workspace"],
+    browserEnvironments: [{ cwd: "/workspace" }],
+    threadStartKind: "conversational_onboarding",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(context.calls.length, 2);
+  assert.equal(context.calls[0].method, "thread/start");
+  assert.ok(context.calls[0].params.dynamicTools);
+  assert.equal(context.calls[0].params.cwd, "/workspace");
+  assert.equal(context.calls[1].method, "thread/start");
+  assert.equal("dynamicTools" in context.calls[1].params, false);
+  assert.equal(context.calls[1].params.cwd, "/workspace");
+  assert.deepEqual(context.calls[1].params.runtimeWorkspaceRoots, ["/workspace"]);
+});
+
+test("does not retry thread start for unrelated app-server failures", async () => {
+  const patched = applyPatchTwice(
+    applyLinuxDynamicToolsThreadStartFallbackPatch,
+    dynamicToolsThreadStartFixture(),
+  );
+  const context = { calls: [] };
+  vm.runInNewContext(`${patched};ThreadManager=hd;`, context);
+  const manager = new context.ThreadManager();
+  manager.params.requestClient = {
+    sendRequest: async (method, params, options) => {
+      context.calls.push({ method, params, options });
+      throw new Error("different failure");
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      manager.startThread({
+        workspaceRoots: [],
+        browserEnvironments: null,
+        threadStartKind: "default",
+      }),
+    /different failure/,
+  );
+  assert.equal(context.calls.length, 1);
+  assert.ok(context.calls[0].params.dynamicTools);
+});
+
+test("warns when dynamic tools thread start fallback needles drift", () => {
+  const source =
+    "var md=5e3,hd=class{dynamicToolsForThreadStartRequests=new Map;async startThread(){return this.params.requestClient.sendRequest(`thread/start`,{}, {})}};";
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyLinuxDynamicToolsThreadStartFallbackPatch(source),
+  );
+
+  assert.equal(patched, source);
+  assert.match(warnings.join("\n"), /Could not find dynamic tools thread\/start call/);
 });
 
 test("adds Linux package updater behind the existing app updater manager", () => {

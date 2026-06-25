@@ -938,6 +938,74 @@ function applyLinuxAppServerBackfillWaitPatch(currentSource) {
   return patchedSource;
 }
 
+function applyLinuxDynamicToolsThreadStartFallbackPatch(currentSource) {
+  const helperSource =
+    "function codexLinuxIsDynamicToolInputSchemaError(e){let t=typeof e===`string`?e:e?.message??e?.error?.message??e?.data?.message??String(e);return typeof t===`string`&&t.includes(\"missing field `inputSchema`\")}";
+  const helperMarker = "function codexLinuxIsDynamicToolInputSchemaError(";
+  const fallbackMarker = "codexLinuxThreadStartParams.dynamicTools";
+  const threadStartNeedle =
+    "return i!=null&&(g.environments=i,i.length>0&&(g.cwd=i[0].cwd)),this.params.requestClient.sendRequest(`thread/start`,{...g,...m===`conversational_onboarding`?{runtimeWorkspaceRoots:r}:{}},{timeoutMs:Ae})";
+  const threadStartRegex =
+    /return ([A-Za-z_$][\w$]*)!=null&&\(([A-Za-z_$][\w$]*)\.environments=\1,\1\.length>0&&\(\2\.cwd=\1\[0\]\.cwd\)\),this\.params\.requestClient\.sendRequest\(`thread\/start`,\{\.\.\.\2,\.\.\.([A-Za-z_$][\w$]*)===`conversational_onboarding`\?\{runtimeWorkspaceRoots:([A-Za-z_$][\w$]*)\}:\{\}\},\{timeoutMs:([A-Za-z_$][\w$]*)\}\)/u;
+  const threadContextMarker =
+    currentSource.includes("dynamicToolsForThreadStartRequests") ||
+    currentSource.includes("requestDynamicToolsForThreadStart") ||
+    currentSource.includes("handle-dynamic-tools-for-thread-start-response-for-host");
+  const replacementFor = (environmentVar, paramsVar, threadStartKindVar, workspaceRootsVar, timeoutVar) =>
+    `${environmentVar}!=null&&(${paramsVar}.environments=${environmentVar},${environmentVar}.length>0&&(${paramsVar}.cwd=${environmentVar}[0].cwd));try{return await this.params.requestClient.sendRequest(\`thread/start\`,{...${paramsVar},...${threadStartKindVar}===\`conversational_onboarding\`?{runtimeWorkspaceRoots:${workspaceRootsVar}}:{}},{timeoutMs:${timeoutVar}})}catch(codexLinuxError){if(codexLinuxIsDynamicToolInputSchemaError(codexLinuxError)&&${paramsVar}.dynamicTools!=null){let codexLinuxThreadStartParams={...${paramsVar}};delete codexLinuxThreadStartParams.dynamicTools;return await this.params.requestClient.sendRequest(\`thread/start\`,{...codexLinuxThreadStartParams,...${threadStartKindVar}===\`conversational_onboarding\`?{runtimeWorkspaceRoots:${workspaceRootsVar}}:{}},{timeoutMs:${timeoutVar}})}throw codexLinuxError}`;
+  let patchedSource = currentSource;
+
+  if (!patchedSource.includes(fallbackMarker)) {
+    if (patchedSource.includes(threadStartNeedle)) {
+      patchedSource = patchedSource.replace(
+        threadStartNeedle,
+        replacementFor("i", "g", "m", "r", "Ae"),
+      );
+    } else {
+      const regexPatchedSource = patchedSource.replace(
+        threadStartRegex,
+        (_match, environmentVar, paramsVar, threadStartKindVar, workspaceRootsVar, timeoutVar) =>
+          replacementFor(
+            environmentVar,
+            paramsVar,
+            threadStartKindVar,
+            workspaceRootsVar,
+            timeoutVar,
+          ),
+      );
+      if (regexPatchedSource !== patchedSource) {
+        patchedSource = regexPatchedSource;
+      } else if (threadContextMarker && currentSource.includes("thread/start")) {
+        console.warn(
+          "WARN: Could not find dynamic tools thread/start call — skipping inputSchema fallback patch",
+        );
+      }
+    }
+  }
+
+  if (!patchedSource.includes(fallbackMarker)) {
+    return currentSource;
+  }
+
+  if (!patchedSource.includes(helperMarker)) {
+    const helperAnchorRegex =
+      /var [A-Za-z_$][\w$]*=5e3,[A-Za-z_$][\w$]*=class\{dynamicToolsForThreadStartRequests=/u;
+    const helperAnchorMatch = patchedSource.match(helperAnchorRegex);
+    if (helperAnchorMatch?.index == null) {
+      console.warn(
+        "WARN: Could not insert dynamic tools inputSchema fallback helper — skipping thread/start fallback patch",
+      );
+      return currentSource;
+    }
+    patchedSource =
+      patchedSource.slice(0, helperAnchorMatch.index) +
+      helperSource +
+      patchedSource.slice(helperAnchorMatch.index);
+  }
+
+  return patchedSource;
+}
+
 function applyLinuxI18nGatePatch(currentSource) {
   const alreadyPatchedI18nGateRegexes = [
     /([A-Za-z_$][\w$]*)=[^;]*?\.get\(`enable_i18n`,!1\)[^;]*;let [^;]*,([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\.localeOverride\),[A-Za-z_$][\w$]*=\1\|\|\2!=null/u,
@@ -1890,6 +1958,7 @@ function patchCommentPreloadBundle(extractedDir) {
 module.exports = {
   applyBrowserAnnotationScreenshotPatch,
   applyLinuxAppServerBackfillWaitPatch,
+  applyLinuxDynamicToolsThreadStartFallbackPatch,
   applyLinuxAppServerFeatureEnablementPatch,
   applyLinuxChatSearchHydrationPatch,
   applyLinuxBrowserUseAvailabilityPatch,
